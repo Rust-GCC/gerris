@@ -1,11 +1,12 @@
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
+use std::process::{Command, Stdio};
 
 use clap::Parser;
 
 #[derive(Parser)]
 struct Args {}
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum Status {
     Success,
     Failed,
@@ -149,8 +150,7 @@ fn parse_checking_line(line: &str) -> Result<CheckLine, ParseError> {
     let (line, _) = tag("Checking")(line)?;
     let (line, _) = whitespace(line)?;
     let (line, hash) = hash(line)?;
-    // FIXME: Implement character combinator
-    let (line, _) = tag(":")(line)?;
+    let (line, _) = character(':')(line)?;
     let (line, _) = whitespace(line)?;
     let (_, result) = either(tag("OK"), tag("FAILED"))(line)?;
 
@@ -174,6 +174,22 @@ fn main() -> anyhow::Result<()> {
         let line = parse_checking_line(&line);
         if let Ok(check_line) = line {
             println!("{:?}", check_line);
+
+            if check_line.status == Status::Failed {
+                let patch = Command::new("git").args(["show", "-1"]).output()?.stdout;
+                let mut changelog_cmd = Command::new("python3") /* FIXME: Is that correct? Probably not */
+                    // FIXME: Fix path
+                    .arg("../gccrs/contrib/mklog.py") /* FIXME: We should probably use a Path here */
+                    .stdin(Stdio::piped()).spawn()?;
+
+                changelog_cmd.stdin.take().unwrap().write_all(&patch)?;
+
+                let cl = changelog_cmd.wait_with_output()?.stdout;
+                println!(
+                    "changelog skeleton should look like:\n{}",
+                    String::from_utf8(cl)?
+                );
+            }
         }
     }
 
