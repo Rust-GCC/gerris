@@ -5,11 +5,6 @@ use std::process::{Command, Stdio};
 // FIXME: Or should we? Is the goal to compile it asap using gccrs?
 // FIXME: If not, use nom instead of the hand-written combinator
 
-use clap::Parser;
-
-#[derive(Parser)]
-struct Args {}
-
 #[derive(Debug, PartialEq, Eq)]
 enum Status {
     Success,
@@ -169,8 +164,6 @@ fn parse_checking_line(line: &str) -> Result<CheckLine, ParseError> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let _args = Args::parse();
-
     let stdin = io::stdin();
 
     for line in stdin.lock().lines() {
