@@ -1,6 +1,9 @@
 use std::io::{self, BufRead, Write};
 use std::process::{Command, Stdio};
 
+mod parser;
+use parser::{Combinator, ParseError};
+
 // FIXME: Add env_logger, would fit quite nicely here
 // FIXME: Or should we? Is the goal to compile it asap using gccrs?
 // FIXME: If not, use nom instead of the hand-written combinator
@@ -17,118 +20,12 @@ struct CheckLine {
     status: Status,
 }
 
-type ParseResult<'i, T> = Result<(&'i str, T), ParseError<'i>>;
-
-#[derive(Debug)]
-enum Combinator {
-    Custom(String),
-    Character(char),
-    Alpha,
-    Num,
-    Tag(String),
-    Whitespace,
-}
-
-#[derive(Debug)]
-struct ParseError<'i> {
-    input: &'i str,
-    combinator: Combinator,
-}
-
-fn character<'i>(c: char) -> impl FnOnce(&'i str) -> ParseResult<char> {
-    move |input: &'i str| {
-        if let Some(input) = input.strip_prefix(c) {
-            Ok((input, c))
-        } else {
-            Err(ParseError {
-                input,
-                combinator: Combinator::Character(c),
-            })
-        }
-    }
-}
-
-fn alpha<'i>() -> impl FnOnce(&'i str) -> ParseResult<char> {
-    |input: &'i str| {
-        let res = (['a'..='z', 'A'..='Z'])
-            .map(|range| range.map(|c| character(c)(input)).find(|res| res.is_ok()));
-
-        match res {
-            [Some(ok), None] | [None, Some(ok)] => ok,
-            [None, None] => Err(ParseError {
-                input,
-                combinator: Combinator::Alpha,
-            }),
-            [Some(_), Some(_)] => unreachable!(),
-        }
-    }
-}
-
-fn num<'i>() -> impl FnOnce(&'i str) -> ParseResult<char> {
-    |input: &'i str| {
-        let res = ('0'..='9')
-            .map(|c| character(c)(input))
-            .find(|r| r.is_ok())
-            .ok_or(ParseError {
-                input,
-                combinator: Combinator::Num,
-            });
-
-        match res {
-            Ok(res) => res,
-            Err(e) => Err(e),
-        }
-    }
-}
-
-fn tag<'i, 't>(tag: &'t str) -> impl FnOnce(&'i str) -> ParseResult<&'t str>
-where
-    'i: 't,
-{
-    move |input: &'i str| {
-        if let Some(input) = input.strip_prefix(tag) {
-            Ok((input, tag))
-        } else {
-            Err(ParseError {
-                input,
-                combinator: Combinator::Tag(tag.to_owned()),
-            })
-        }
-    }
-}
-
-fn whitespace(input: &str) -> Result<(&str, ()), ParseError> {
-    if let Some(input) = input.strip_prefix(' ') {
-        Ok((input, ()))
-    } else {
-        Err(ParseError {
-            input,
-            combinator: Combinator::Whitespace,
-        })
-    }
-}
-
-fn either<'i, L, R, T>(lp: L, rp: R) -> impl FnOnce(&'i str) -> ParseResult<T>
-where
-    L: FnOnce(&'i str) -> ParseResult<T>,
-    R: FnOnce(&'i str) -> ParseResult<T>,
-{
-    move |input: &'i str| match lp(input) {
-        Ok(res) => Ok(res),
-        Err(_) => rp(input),
-    }
-}
-
-fn alphanum<'i>() -> impl FnOnce(&'i str) -> ParseResult<char> {
-    |input| either(alpha(), num())(input)
-}
-
 // FIXME: This can return a slice of input by using indexes
 fn hash(input: &str) -> Result<(&str, String), ParseError> {
     let mut hash = String::new();
     let mut input = input;
 
-    while let Ok((new_input, c)) = alphanum()(input) {
+    while let Ok((new_input, c)) = parser::alphanum()(input) {
         input = new_input;
         hash.push(c);
     }
@@ -146,12 +43,12 @@ fn parse_checking_line(line: &str) -> Result<CheckLine, ParseError> {
     // FIXME: Add validation this is a proper hash and not some random string
     // FIXME: Should we check this hash belongs to the repository
 
-    let (line, _) = tag("Checking")(line)?;
-    let (line, _) = whitespace(line)?;
+    let (line, _) = parser::tag("Checking")(line)?;
+    let (line, _) = parser::whitespace(line)?;
     let (line, hash) = hash(line)?;
-    let (line, _) = character(':')(line)?;
-    let (line, _) = whitespace(line)?;
-    let (_, result) = either(tag("OK"), tag("FAILED"))(line)?;
+    let (line, _) = parser::character(':')(line)?;
+    let (line, _) = parser::whitespace(line)?;
+    let (_, result) = parser::either(parser::tag("OK"), parser::tag("FAILED"))(line)?;
 
     Ok(CheckLine {
         hash,
