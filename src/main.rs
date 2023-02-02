@@ -182,16 +182,22 @@ fn main() -> anyhow::Result<()> {
                     .args(["show", &check_line.hash, "-1"])
                     .output()?
                     .stdout;
-                let mut changelog_cmd = Command::new("python3") /* FIXME: Is that correct? Probably not */
-                    // FIXME: Fix path
-                    .arg("../gccrs/contrib/mklog.py") /* FIXME: We should probably use a Path here */
-                    .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
+                let mut changelog_cmd =
+                    Command::new("python3") /* FIXME: Is that correct? Probably not */
+                        // FIXME: Fix path
+                        .arg("contrib/mklog.py") /* FIXME: We should probably use a Path here */
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .spawn()?;
+
+                dbg!(&patch);
+                dbg!(&check_line);
 
                 changelog_cmd.stdin.take().unwrap().write_all(&patch)?;
 
                 let cl = changelog_cmd.wait_with_output()?.stdout;
                 println!(
-                    "* Changelog skeleton for commit {}:\n```\n{}\n```",
+                    "* Changelog skeleton for commit {}:\n```{}```",
                     check_line.hash,
                     String::from_utf8(cl)?
                 );
