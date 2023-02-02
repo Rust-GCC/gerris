@@ -1,11 +1,12 @@
-FROM rust
+FROM rust:latest as builder
 
-WORKDIR .
+COPY . /gerris
+WORKDIR /gerris
 
-RUN cargo install --path .
+RUN cargo build --release
 
-FROM ubuntu:22-04
+FROM ubuntu:latest as container
 
-COPY rust:/.cargo/bin/gerris/ /usr/local/bin/gerris
+COPY --from=builder /gerris/target/release/gerris /usr/bin/gerris
 
 RUN apt-get update && apt-get install -y python3
