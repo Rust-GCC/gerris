@@ -28,3 +28,15 @@ jobs:
       run: cargo check
     - name: Run Clippy
       run: cargo clippy --all -- -Wclippy::pedantic
+    - name: Run tests
+      run: cargo test
+
+  docker-build-check:
+    runs-on: ubuntu-latest
+    needs: check
+
+    steps:
+      - uses: actions/checkout@v2
+      - name: Check the project's docker image is functional
+        run: |
+          docker build . -t gerris-tmp
