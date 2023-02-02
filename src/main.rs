@@ -1,6 +1,10 @@
 use std::io::{self, BufRead, Write};
 use std::process::{Command, Stdio};
 
+// FIXME: Add env_logger, would fit quite nicely here
+// FIXME: Or should we? Is the goal to compile it asap using gccrs?
+// FIXME: If not, use nom instead of the hand-written combinator
+
 use clap::Parser;
 
 #[derive(Parser)]
@@ -173,20 +177,22 @@ fn main() -> anyhow::Result<()> {
         let line = line?;
         let line = parse_checking_line(&line);
         if let Ok(check_line) = line {
-            println!("{:?}", check_line);
-
             if check_line.status == Status::Failed {
-                let patch = Command::new("git").args(["show", "-1"]).output()?.stdout;
+                let patch = Command::new("git")
+                    .args(["show", &check_line.hash, "-1"])
+                    .output()?
+                    .stdout;
                 let mut changelog_cmd = Command::new("python3") /* FIXME: Is that correct? Probably not */
                     // FIXME: Fix path
                     .arg("../gccrs/contrib/mklog.py") /* FIXME: We should probably use a Path here */
-                    .stdin(Stdio::piped()).spawn()?;
+                    .stdin(Stdio::piped()).stdout(Stdio::piped()).spawn()?;
 
                 changelog_cmd.stdin.take().unwrap().write_all(&patch)?;
 
                 let cl = changelog_cmd.wait_with_output()?.stdout;
                 println!(
-                    "changelog skeleton should look like:\n{}",
+                    "* Changelog skeleton for commit {}:\n```\n{}\n```",
+                    check_line.hash,
                     String::from_utf8(cl)?
                 );
             }
