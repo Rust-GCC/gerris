@@ -6,6 +6,7 @@ use clap::{Parser, Subcommand};
 
 mod clog;
 mod parser;
+mod upstream;
 
 #[derive(Clone, Copy, Subcommand)]
 enum SubCmd {
@@ -29,7 +30,7 @@ fn main() -> anyhow::Result<()> {
 
     match args.cmd {
         SubCmd::ChangeLogs => clog::check_clog_checker_output()?,
-        SubCmd::Upstream => todo!(),
+        SubCmd::Upstream => upstream::prepare_commits()?,
     }
 
     Ok(())
