@@ -18,7 +18,7 @@ pub enum Error<'clog> {
 
 impl<'clog> Display for Error<'clog> {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        write!(f, "{:#?}", self)
+        write!(f, "{self:#?}")
     }
 }
 
@@ -64,12 +64,13 @@ fn hash(input: &str) -> Result<(&str, String), ParseError> {
         hash.push(c);
     }
 
-    match hash.is_empty() {
-        true => Err(ParseError {
+    if hash.is_empty() {
+        Err(ParseError {
             input,
             combinator: Combinator::Custom("hash".to_owned()),
-        }),
-        false => Ok((input, hash)),
+        })
+    } else {
+        Ok((input, hash))
     }
 }
 

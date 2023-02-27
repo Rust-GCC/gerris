@@ -32,7 +32,7 @@ pub fn character<'i>(c: char) -> impl FnOnce(&'i str) -> ParseResult<char> {
 pub fn alpha<'i>() -> impl FnOnce(&'i str) -> ParseResult<char> {
     |input: &'i str| {
         let res = (['a'..='z', 'A'..='Z'])
-            .map(|range| range.map(|c| character(c)(input)).find(|res| res.is_ok()));
+            .map(|range| range.map(|c| character(c)(input)).find(Result::is_ok));
 
         match res {
             [Some(ok), None] | [None, Some(ok)] => ok,
@@ -49,7 +49,7 @@ pub fn num<'i>() -> impl FnOnce(&'i str) -> ParseResult<char> {
     |input: &'i str| {
         let res = ('0'..='9')
             .map(|c| character(c)(input))
-            .find(|r| r.is_ok())
+            .find(Result::is_ok)
             .ok_or(ParseError {
                 input,
                 combinator: Combinator::Num,
