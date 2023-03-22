@@ -126,3 +126,132 @@ impl Remote {
             .spawn()
     }
 }
+
+pub struct RevList {
+    from: String,
+    to: String,
+    not_on: Vec<String>,
+}
+
+pub fn rev_list(from: impl Into<String>, to: impl Into<String>) -> RevList {
+    RevList {
+        from: from.into(),
+        to: to.into(),
+        not_on: vec![],
+    }
+}
+
+impl RevList {
+    pub fn not_on(mut self, not_on: impl Into<String>) -> RevList {
+        RevList {
+            not_on: {
+                self.not_on.push(not_on.into());
+                self.not_on
+            },
+            ..self
+        }
+    }
+
+    pub fn cmd(self) -> Result<Child, Error> {
+        info!("fetching revlist: {} -> {}", &self.from, &self.to);
+
+        let mut cmd = Command::new("git");
+
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.arg("rev-list").arg("--no-merges");
+
+        let mut cmd = self.not_on.into_iter().fold(cmd, |mut cmd, not_on| {
+            cmd.arg(&format!("^{not_on}"));
+            cmd
+        });
+
+        cmd.arg(&format!("{}..{}", self.from, self.to));
+
+        info!("{:?}", &cmd.get_args());
+
+        cmd.spawn()
+    }
+
+    pub fn commits(self) -> Result<Vec<String>, Error> {
+        let out = self.cmd()?.wait_with_output()?;
+        // FIXME: No unwrap here
+        let out = String::from_utf8(out.stdout).unwrap();
+
+        // FIXME: This can return an iterator instead
+        Ok(out.lines().map(str::to_owned).collect())
+    }
+}
+
+pub struct Branch {
+    name: String,
+}
+
+pub fn branch(name: impl Into<String>) -> Branch {
+    Branch { name: name.into() }
+}
+
+impl Branch {
+    pub fn create(self) -> Result<Child, Error> {
+        let mut cmd = Command::new("git");
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        cmd.arg("checkout").arg("-b").arg(self.name);
+
+        cmd.spawn()
+    }
+}
+
+pub struct Commit {
+    hash: String,
+}
+
+pub fn commit(hash: impl Into<String>) -> Commit {
+    Commit { hash: hash.into() }
+}
+
+impl Commit {
+    pub fn cherry_pick(&self) -> Result<Child, Error> {
+        info!("cherry-picking {}", &self.hash);
+
+        let mut cmd = Command::new("git");
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        cmd.arg("cherry-pick").arg(&self.hash);
+
+        cmd.spawn()
+    }
+
+    pub fn amend(self) -> Amend {
+        Amend {
+            commit: self,
+            msg: None,
+        }
+    }
+}
+
+pub struct Amend {
+    commit: Commit,
+    msg: Option<String>,
+}
+
+impl Amend {
+    pub fn message(self, msg: impl Into<String>) -> Amend {
+        Amend {
+            msg: Some(msg.into()),
+            ..self
+        }
+    }
+
+    pub fn cmd(self) -> Result<Child, Error> {
+        info!("amending with msg: {:#?}", self.msg);
+
+        let mut cmd = Command::new("git");
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+
+        // FIXME: This should really use the commit here
+        cmd.arg("amend");
+        self.msg.map(|msg| cmd.arg("-m").arg(&msg));
+
+        cmd.spawn()
+    }
+}

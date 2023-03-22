@@ -56,11 +56,12 @@
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::path::{Path, PathBuf};
-use std::process::ExitStatus;
+use std::process::Command;
 use std::string;
 use std::{env, error, io};
 
-use log::info;
+use chrono::Local;
+use log::{info, warn};
 use octocrab::OctocrabBuilder;
 
 use crate::git;
@@ -147,17 +148,17 @@ pub async fn prepare_commits(
         .strip_suffix('\n')
         .unwrap();
 
-    dbg!(last_commit);
-
     let ours = git::log()
         .grep(format!("^{last_commit}"))
         .amount(1)
         .branch("github/master")
         .not_on("gcc/master")
+        .format("%h")
         .cmd()?
         .wait_with_output()?
         .stdout;
     let ours = String::from_utf8(ours)?;
+    let ours = ours.strip_suffix('\n').unwrap();
 
     info!("found equivalent commit: {ours}");
 
@@ -166,14 +167,48 @@ pub async fn prepare_commits(
         .build()
         .unwrap();
 
-    // instance
-    //     .pulls("cohenarthur", "gccrs")
-    //     .create("test", "gerris-test-branch", branch)
-    //     .body("Hey there! I'm gerris :)")
-    //     .maintainer_can_modify(true)
-    //     .send()
-    //     .await
-    //     .unwrap();
+    let to_bring_over = git::rev_list(ours, "github/master")
+        .not_on("gcc/master")
+        .commits()?;
+
+    warn!("bringing over {} commits", to_bring_over.len());
+
+    let name = format!("prepare-{}", Local::now().date_naive());
+    info!("creating branch: {name}");
+    git::branch(&name).create()?.wait()?;
+
+    to_bring_over
+        .into_iter()
+        .try_for_each(|commit| -> Result<(), Error> {
+            let commit = git::commit(commit);
+
+            commit.cherry_pick()?.wait()?;
+
+            commit
+                .amend()
+                .message("gerris: I'm doing my very best!")
+                .cmd()?
+                .wait()?;
+
+            Ok(())
+        })?;
+
+    Command::new("git")
+        .arg("push")
+        .arg("-u")
+        .arg("origin")
+        .arg("HEAD")
+        .spawn()?
+        .wait()?;
+
+    instance
+        .pulls("cohenarthur", "gccrs")
+        .create("test", &name, branch)
+        .body("Hey there! I'm gerris :)")
+        .maintainer_can_modify(true)
+        .send()
+        .await
+        .unwrap();
 
     todo!()
 }
