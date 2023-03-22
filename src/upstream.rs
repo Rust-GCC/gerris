@@ -61,6 +61,7 @@ use std::string;
 use std::{env, error, io};
 
 use chrono::Local;
+use git2::{Repository, Revwalk};
 use log::{info, warn};
 use octocrab::OctocrabBuilder;
 
@@ -76,6 +77,7 @@ pub struct UpstreamOpt {
 pub enum Error {
     Io(io::Error),
     Utf8(string::FromUtf8Error),
+    Git(git2::Error),
 }
 
 impl Display for Error {
@@ -98,37 +100,53 @@ impl From<string::FromUtf8Error> for Error {
     }
 }
 
-fn init_workspace(gccrs: &Path) -> Result<(), Error> {
+impl From<git2::Error> for Error {
+    fn from(err: git2::Error) -> Self {
+        Error::Git(err)
+    }
+}
+fn init_workspace(gccrs: &Path) -> Result<Repository, Error> {
     // do we assume there's already a valid clone of gccrs here?
 
-    // let current_dir = env::current_dir()?;
     info!("workspace: {}", gccrs.display());
 
-    env::set_current_dir(gccrs)?;
+    let repo = Repository::open(gccrs)?;
 
-    git::remote("gcc")
-        .add("git://gcc.gnu.org/git/gcc.git")?
-        .wait()?;
-    git::remote("github")
-        .add("https://github.com/rust-gcc/gccrs")?
-        .wait()?;
+    {
+        // we just try adding them, but it's not an error if they already exist
+        let mut gcc = repo
+            .remote("gcc", "git://gcc.gnu.org/git/gcc.git")
+            .unwrap_or(repo.find_remote("gcc")?);
+        let mut github = repo
+            .remote("github", "https://github.com/rust-gcc/gccrs")
+            .unwrap_or(repo.find_remote("github")?);
 
-    git::remote("gcc").fetch()?.wait()?;
-    git::remote("github").fetch()?.wait()?;
+        gcc.fetch(&["master"], None, None)?;
+        github.fetch(&["master", "gcc-patch-dev"], None, None)?;
+    }
 
-    // env::set_current_dir(current_dir)?;
-
-    Ok(())
+    Ok(repo)
 }
 
-pub async fn prepare_commits(
-    UpstreamOpt {
-        token,
-        branch,
-        gccrs,
-    }: UpstreamOpt,
-) -> Result<(), Error> {
-    init_workspace(&gccrs)?;
+fn last_upstreamed_commit(repo: Repository) -> Result<String, Error> {
+    let mut walker = repo.revwalk()?;
+
+    let gcc_patch_dev = repo
+        .references()?
+        .find(|reference| reference.as_ref().unwrap().name().unwrap() == "refs/heads/gcc-patch-dev")
+        .unwrap()
+        .unwrap();
+
+    walker.push(gcc_patch_dev.target_peel().unwrap())?;
+
+    let commit = walker.next().unwrap();
+    // .|commit| {
+    let commit = repo.find_commit(commit.unwrap()).unwrap();
+
+    println!("{}", commit.message().unwrap());
+    // });
+
+    // let last_commit = repo.
 
     let last_commit = git::log()
         .grep("^gccrs: ")
@@ -148,6 +166,13 @@ pub async fn prepare_commits(
         .strip_suffix('\n')
         .unwrap();
 
+    Ok(String::from(last_commit))
+}
+
+fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
+    let repo = init_workspace(gccrs)?;
+    let last_commit = last_upstreamed_commit(repo)?;
+
     let ours = git::log()
         .grep(format!("^{last_commit}"))
         .amount(1)
@@ -162,20 +187,16 @@ pub async fn prepare_commits(
 
     info!("found equivalent commit: {ours}");
 
-    let instance = OctocrabBuilder::new()
-        .personal_token(token)
-        .build()
-        .unwrap();
-
     let to_bring_over = git::rev_list(ours, "github/master")
         .not_on("gcc/master")
         .commits()?;
 
     warn!("bringing over {} commits", to_bring_over.len());
 
-    let name = format!("prepare-{}", Local::now().date_naive());
-    info!("creating branch: {name}");
-    git::branch(&name).create()?.wait()?;
+    let branch_name = format!("prepare-{}", Local::now().date_naive());
+
+    info!("creating branch: {branch_name}");
+    git::branch(&branch_name).create()?.wait()?;
 
     to_bring_over
         .into_iter()
@@ -201,9 +222,30 @@ pub async fn prepare_commits(
         .spawn()?
         .wait()?;
 
+    Ok(branch_name)
+}
+
+pub async fn prepare_commits(
+    UpstreamOpt {
+        token,
+        branch,
+        gccrs,
+    }: UpstreamOpt,
+) -> Result<(), Error> {
+    let new_branch = prepare_branch(&gccrs)?;
+
+    let instance = OctocrabBuilder::new()
+        .personal_token(token)
+        .build()
+        .unwrap();
+
     instance
         .pulls("cohenarthur", "gccrs")
-        .create("test", &name, branch)
+        .create(
+            format!("Commits to upstream: {}", Local::now().date_naive()),
+            new_branch,
+            branch,
+        )
         .body("Hey there! I'm gerris :)")
         .maintainer_can_modify(true)
         .send()
