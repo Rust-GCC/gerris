@@ -56,16 +56,13 @@
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::string;
-use std::{env, error, io};
+use std::{error, io};
 
 use chrono::Local;
-use git2::{Repository, Revwalk};
+use git2::{Commit, Oid, Repository, Revwalk, Sort};
 use log::{info, warn};
 use octocrab::OctocrabBuilder;
-
-use crate::git;
 
 pub struct UpstreamOpt {
     pub token: String,
@@ -112,115 +109,201 @@ fn init_workspace(gccrs: &Path) -> Result<Repository, Error> {
 
     let repo = Repository::open(gccrs)?;
 
-    {
-        // we just try adding them, but it's not an error if they already exist
-        let mut gcc = repo
-            .remote("gcc", "git://gcc.gnu.org/git/gcc.git")
-            .unwrap_or(repo.find_remote("gcc")?);
-        let mut github = repo
-            .remote("github", "https://github.com/rust-gcc/gccrs")
-            .unwrap_or(repo.find_remote("github")?);
+    let get_remote = |remote, url| {
+        repo.find_remote(remote)
+            .or_else(|_| repo.remote(remote, url))
+    };
 
-        gcc.fetch(&["master"], None, None)?;
+    {
+        let mut gcc = get_remote("gcc", "git://gcc.gnu.org/git/gcc.git")?;
+        let mut github = get_remote("github", "https://github.com/rust-gcc/gccrs")?;
+
+        // gcc.fetch(&["master"], None, None)?;
         github.fetch(&["master", "gcc-patch-dev"], None, None)?;
     }
 
     Ok(repo)
 }
 
-fn last_upstreamed_commit(repo: Repository) -> Result<String, Error> {
-    let mut walker = repo.revwalk()?;
-
-    let gcc_patch_dev = repo
+fn last_upstreamed_commit(repo: &Repository, walker: &mut Revwalk) -> Result<String, Error> {
+    let gcc_master = repo
         .references()?
-        .find(|reference| reference.as_ref().unwrap().name().unwrap() == "refs/heads/gcc-patch-dev")
+        .find(|reference| reference.as_ref().unwrap().name().unwrap() == "refs/remotes/gcc/master")
+        .unwrap()
+        .unwrap();
+    // FIXME: Ugly
+
+    walker.push(gcc_master.target().unwrap())?;
+
+    // FIXME: Remove all unwraps
+    let last_upstreamed_commit = walker
+        .find(|commit| {
+            let commit = repo.find_commit(*commit.as_ref().unwrap()).unwrap();
+            commit.message().unwrap().starts_with("gccrs: ")
+        })
         .unwrap()
         .unwrap();
 
-    walker.push(gcc_patch_dev.target_peel().unwrap())?;
+    let last_upstreamed_commit = repo.find_commit(last_upstreamed_commit).unwrap();
 
-    let commit = walker.next().unwrap();
-    // .|commit| {
-    let commit = repo.find_commit(commit.unwrap()).unwrap();
+    info!("last commit upstreamed: {:?}", &last_upstreamed_commit);
 
-    println!("{}", commit.message().unwrap());
-    // });
-
-    // let last_commit = repo.
-
-    let last_commit = git::log()
-        .grep("^gccrs: ")
-        .format("%s")
-        .amount(1)
-        .branch("gcc/master")
-        .cmd()?
-        .wait_with_output()?
-        .stdout;
-    let last_commit = String::from_utf8(last_commit)?;
-
-    info!("last commit upstreamed: {}", &last_commit);
-
-    let last_commit = last_commit
+    let last_commit_msg = last_upstreamed_commit
+        .message()
+        .unwrap()
         .strip_prefix("gccrs: ")
-        .unwrap()
-        .strip_suffix('\n')
         .unwrap();
 
-    Ok(String::from(last_commit))
+    walker.reset()?;
+
+    Ok(String::from(last_commit_msg))
+}
+
+fn equivalent_github_commit(
+    repo: &Repository,
+    walker: &mut Revwalk,
+    to_find: &str,
+) -> Result<Oid, Error> {
+    let github = repo
+        .references()?
+        .find(|reference| {
+            reference.as_ref().unwrap().name().unwrap() == "refs/remotes/github/master"
+        })
+        .unwrap()
+        .unwrap();
+
+    let to_find = to_find.lines().next().unwrap();
+
+    walker.push(github.target().unwrap())?;
+
+    let ours = walker
+        .find(|commit| {
+            let msg = repo.find_commit(*commit.as_ref().unwrap()).unwrap();
+            let msg = msg.message();
+
+            msg.unwrap().lines().next() == Some(to_find)
+        })
+        .unwrap()?;
+
+    Ok(ours)
 }
 
 fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
     let repo = init_workspace(gccrs)?;
-    let last_commit = last_upstreamed_commit(repo)?;
+    let mut walker = repo.revwalk()?;
+    let last_commit = last_upstreamed_commit(&repo, &mut walker)?;
+    let ours = equivalent_github_commit(&repo, &mut walker, &last_commit)?;
 
-    let ours = git::log()
-        .grep(format!("^{last_commit}"))
-        .amount(1)
-        .branch("github/master")
-        .not_on("gcc/master")
-        .format("%h")
-        .cmd()?
-        .wait_with_output()?
-        .stdout;
-    let ours = String::from_utf8(ours)?;
-    let ours = ours.strip_suffix('\n').unwrap();
+    let gcc = repo
+        .references()?
+        .find(|reference| reference.as_ref().unwrap().name().unwrap() == "refs/remotes/gcc/master")
+        .unwrap()
+        .unwrap();
 
     info!("found equivalent commit: {ours}");
 
-    let to_bring_over = git::rev_list(ours, "github/master")
-        .not_on("gcc/master")
-        .commits()?;
+    dbg!(ours);
+
+    walker.reset()?;
+    // FIXME: Need to ignore merge commits
+    walker.set_sorting(Sort::REVERSE)?;
+    walker.hide(gcc.target().unwrap())?;
+    walker.push_range(&format!("{ours}..refs/remotes/github/master"))?;
+    // walker.push(ours)?;
+    // walker.push(github.target().unwrap())?;
+
+    // now we have the entire list of commits between our github remote and the latest pushed one
+    // we need to figure out how to split them into two lists of commits - those which might need to be upstreamed later on and those which need to be upstreamed now
+    // we can specify that behavior with a flag to gerris directly, and changing it in CI
+
+    let all_commits = walker
+        .map(|commit| repo.find_commit(commit.unwrap()).unwrap())
+        .collect::<Vec<Commit>>();
+
+    let (rust_commits, maybe_to_stage) = all_commits
+        .iter()
+        // filter merge commits out - a merge commit is a commit
+        // with more than one parent
+        .filter(|commit| commit.parents().len() == 1)
+        // we map each commit to the list of files it has touched
+        .map(|commit| {
+            // we can iter only on `commit.parent()` right?
+            commit
+                .parents()
+                .fold((commit, Vec::new()), |(commit, mut acc), parent| {
+                    let diff = repo
+                        .diff_tree_to_tree(
+                            Some(parent.tree().as_ref().unwrap()),
+                            Some(commit.tree().as_ref().unwrap()),
+                            None,
+                        )
+                        .unwrap();
+
+                    let mut new_diffs = diff
+                        .deltas()
+                        .map(|delta| delta.new_file().path().unwrap().to_path_buf())
+                        .collect::<Vec<_>>();
+
+                    acc.append(&mut new_diffs);
+
+                    (commit, acc)
+                })
+        })
+        // now we fold again, splitting into two vectors - the commits which have touched files other than gcc/{,testsuite}/rust and the rest
+        // TODO: this needs to be updated once we will have upstreamed libgrust/
+        .fold(
+            (Vec::new(), Vec::new()),
+            |(mut rust_commits, mut maybe_stage), (commit, files_touched)| {
+                if files_touched.into_iter().any(|path| {
+                    !(path.starts_with("gcc/rust/") || path.starts_with("gcc/testsuite/rust"))
+                }) {
+                    maybe_stage.push(commit);
+                } else {
+                    rust_commits.push(commit);
+                }
+
+                (rust_commits, maybe_stage)
+            },
+        );
+
+    dbg!(rust_commits);
+    dbg!(maybe_to_stage);
+
+    let to_bring_over = ["hey"];
+    // let to_bring_over = git::rev_list(ours, "github/master")
+    //     .not_on("gcc/master")
+    //     .commits()?;
 
     warn!("bringing over {} commits", to_bring_over.len());
 
     let branch_name = format!("prepare-{}", Local::now().date_naive());
 
-    info!("creating branch: {branch_name}");
-    git::branch(&branch_name).create()?.wait()?;
+    // info!("creating branch: {branch_name}");
+    // git::branch(&branch_name).create()?.wait()?;
 
-    to_bring_over
-        .into_iter()
-        .try_for_each(|commit| -> Result<(), Error> {
-            let commit = git::commit(commit);
+    // to_bring_over
+    //     .into_iter()
+    //     .try_for_each(|commit| -> Result<(), Error> {
+    //         let commit = git::commit(commit);
 
-            commit.cherry_pick()?.wait()?;
+    //         commit.cherry_pick()?.wait()?;
 
-            commit
-                .amend()
-                .message("gerris: I'm doing my very best!")
-                .cmd()?
-                .wait()?;
+    //         commit
+    //             .amend()
+    //             .message("gerris: I'm doing my very best!")
+    //             .cmd()?
+    //             .wait()?;
 
-            Ok(())
-        })?;
+    //         Ok(())
+    //     })?;
 
-    Command::new("git")
-        .arg("push")
-        .arg("-u")
-        .arg("origin")
-        .arg("HEAD")
-        .spawn()?
-        .wait()?;
+    // Command::new("git")
+    //     .arg("push")
+    //     .arg("-u")
+    //     .arg("origin")
+    //     .arg("HEAD")
+    //     .spawn()?
+    //     .wait()?;
 
     Ok(branch_name)
 }
@@ -239,18 +322,18 @@ pub async fn prepare_commits(
         .build()
         .unwrap();
 
-    instance
-        .pulls("cohenarthur", "gccrs")
-        .create(
-            format!("Commits to upstream: {}", Local::now().date_naive()),
-            new_branch,
-            branch,
-        )
-        .body("Hey there! I'm gerris :)")
-        .maintainer_can_modify(true)
-        .send()
-        .await
-        .unwrap();
+    // instance
+    //     .pulls("cohenarthur", "gccrs")
+    //     .create(
+    //         format!("Commits to upstream: {}", Local::now().date_naive()),
+    //         new_branch,
+    //         branch,
+    //     )
+    //     .body("Hey there! I'm gerris :)")
+    //     .maintainer_can_modify(true)
+    //     .send()
+    //     .await
+    //     .unwrap();
 
     todo!()
 }

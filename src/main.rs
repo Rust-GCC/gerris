@@ -7,7 +7,6 @@ use clap::{Parser, Subcommand};
 // FIXME: If not, use nom instead of the hand-written combinator
 
 mod clog;
-mod git;
 mod parser;
 mod upstream;
 
