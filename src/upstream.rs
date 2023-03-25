@@ -57,10 +57,11 @@
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::path::{Path, PathBuf};
 use std::string;
+use std::time::Duration;
 use std::{error, io};
 
 use chrono::Local;
-use git2::{Commit, Oid, Repository, Revwalk, Sort};
+use git2::{CherrypickOptions, Commit, MergeOptions, Oid, Repository, Revwalk, Sort};
 use log::{info, warn};
 use octocrab::OctocrabBuilder;
 
@@ -119,7 +120,7 @@ fn init_workspace(gccrs: &Path) -> Result<Repository, Error> {
         let mut github = get_remote("github", "https://github.com/rust-gcc/gccrs")?;
 
         // gcc.fetch(&["master"], None, None)?;
-        github.fetch(&["master", "gcc-patch-dev"], None, None)?;
+        // github.fetch(&["master", "gcc-patch-dev"], None, None)?;
     }
 
     Ok(repo)
@@ -202,8 +203,6 @@ fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
 
     info!("found equivalent commit: {ours}");
 
-    dbg!(ours);
-
     walker.reset()?;
     // FIXME: Need to ignore merge commits
     walker.set_sorting(Sort::REVERSE)?;
@@ -239,6 +238,7 @@ fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
                         )
                         .unwrap();
 
+                    // this is probably very long to do
                     let mut new_diffs = diff
                         .deltas()
                         .map(|delta| delta.new_file().path().unwrap().to_path_buf())
@@ -266,44 +266,45 @@ fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
             },
         );
 
-    dbg!(rust_commits);
-    dbg!(maybe_to_stage);
+    warn!("bringing over {} commits", rust_commits.len());
+    warn!("might need to stage {} commits", maybe_to_stage.len());
 
-    let to_bring_over = ["hey"];
-    // let to_bring_over = git::rev_list(ours, "github/master")
-    //     .not_on("gcc/master")
-    //     .commits()?;
+    let now = Local::now();
+    let branch_name = format!("prepare-{}-{}", now.date_naive(), now.timestamp_micros());
 
-    warn!("bringing over {} commits", to_bring_over.len());
+    info!("creating branch {branch_name}");
 
-    let branch_name = format!("prepare-{}", Local::now().date_naive());
+    let branch = repo.branch(&branch_name, &repo.find_commit(ours).unwrap(), true)?;
+    repo.set_head(branch.into_reference().name().unwrap())?;
 
-    // info!("creating branch: {branch_name}");
-    // git::branch(&branch_name).create()?.wait()?;
+    rust_commits.into_iter().for_each(|commit| {
+        // FIMXE: We need to edit the commit's message
+        info!("cherry-picking {commit:?}");
 
-    // to_bring_over
-    //     .into_iter()
-    //     .try_for_each(|commit| -> Result<(), Error> {
-    //         let commit = git::commit(commit);
+        repo.cherrypick(commit, None).unwrap();
 
-    //         commit.cherry_pick()?.wait()?;
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        let mut parents = vec![head];
+        parents.append(&mut commit.parents().collect::<Vec<Commit>>());
 
-    //         commit
-    //             .amend()
-    //             .message("gerris: I'm doing my very best!")
-    //             .cmd()?
-    //             .wait()?;
+        let parents = parents.iter().collect::<Vec<&Commit>>();
 
-    //         Ok(())
-    //     })?;
+        let tree = repo.index().unwrap().write_tree().unwrap();
+        let tree = repo.find_tree(tree).unwrap();
 
-    // Command::new("git")
-    //     .arg("push")
-    //     .arg("-u")
-    //     .arg("origin")
-    //     .arg("HEAD")
-    //     .spawn()?
-    //     .wait()?;
+        repo.commit(
+            Some("HEAD"),
+            &commit.author(),
+            &commit.committer(), // FIXME: Should this be gerris? me?
+            &format!("gccrs: {}", commit.message().unwrap()),
+            &tree,
+            parents.as_slice(),
+        )
+        .unwrap();
+    });
+
+    let mut origin = repo.find_remote("origin")?;
+    origin.push(&[&branch_name], None)?;
 
     Ok(branch_name)
 }
