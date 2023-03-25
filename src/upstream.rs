@@ -57,11 +57,11 @@
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::path::{Path, PathBuf};
 use std::string;
-use std::time::Duration;
+use std::time::Instant;
 use std::{error, io};
 
 use chrono::Local;
-use git2::{CherrypickOptions, Commit, MergeOptions, Oid, Repository, Revwalk, Sort};
+use git2::{BranchType, Commit, Oid, Repository, Revwalk, Sort};
 use log::{info, warn};
 use octocrab::OctocrabBuilder;
 
@@ -116,28 +116,21 @@ fn init_workspace(gccrs: &Path) -> Result<Repository, Error> {
     };
 
     {
-        let mut gcc = get_remote("gcc", "git://gcc.gnu.org/git/gcc.git")?;
         let mut github = get_remote("github", "https://github.com/rust-gcc/gccrs")?;
 
-        // gcc.fetch(&["master"], None, None)?;
-        // github.fetch(&["master", "gcc-patch-dev"], None, None)?;
+        github.fetch(&["master", "gcc-patch-dev"], None, None)?;
     }
 
     Ok(repo)
 }
 
-fn last_upstreamed_commit(repo: &Repository, walker: &mut Revwalk) -> Result<String, Error> {
-    let gcc_master = repo
-        .references()?
-        .find(|reference| reference.as_ref().unwrap().name().unwrap() == "refs/remotes/gcc/master")
-        .unwrap()
-        .unwrap();
-    // FIXME: Ugly
+fn last_prepared_commit(repo: &Repository, walker: &mut Revwalk) -> Result<String, Error> {
+    let gcc_patch_dev = repo.find_branch("gcc-patch-dev", BranchType::Local)?;
 
-    walker.push(gcc_master.target().unwrap())?;
+    walker.push(gcc_patch_dev.get().target().unwrap())?;
 
     // FIXME: Remove all unwraps
-    let last_upstreamed_commit = walker
+    let last_prepared_commit = walker
         .find(|commit| {
             let commit = repo.find_commit(*commit.as_ref().unwrap()).unwrap();
             commit.message().unwrap().starts_with("gccrs: ")
@@ -145,11 +138,11 @@ fn last_upstreamed_commit(repo: &Repository, walker: &mut Revwalk) -> Result<Str
         .unwrap()
         .unwrap();
 
-    let last_upstreamed_commit = repo.find_commit(last_upstreamed_commit).unwrap();
+    let last_prepared_commit = repo.find_commit(last_prepared_commit).unwrap();
 
-    info!("last commit upstreamed: {:?}", &last_upstreamed_commit);
+    info!("last commit prepared: {:?}", &last_prepared_commit);
 
-    let last_commit_msg = last_upstreamed_commit
+    let last_commit_msg = last_prepared_commit
         .message()
         .unwrap()
         .strip_prefix("gccrs: ")
@@ -192,7 +185,7 @@ fn equivalent_github_commit(
 fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
     let repo = init_workspace(gccrs)?;
     let mut walker = repo.revwalk()?;
-    let last_commit = last_upstreamed_commit(&repo, &mut walker)?;
+    let last_commit = last_prepared_commit(&repo, &mut walker)?;
     let ours = equivalent_github_commit(&repo, &mut walker, &last_commit)?;
 
     let gcc = repo
@@ -215,6 +208,9 @@ fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
     // we need to figure out how to split them into two lists of commits - those which might need to be upstreamed later on and those which need to be upstreamed now
     // we can specify that behavior with a flag to gerris directly, and changing it in CI
 
+    let start = Instant::now();
+    info!("starting commit collection");
+
     let all_commits = walker
         .map(|commit| repo.find_commit(commit.unwrap()).unwrap())
         .collect::<Vec<Commit>>();
@@ -225,83 +221,85 @@ fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
         // with more than one parent
         .filter(|commit| commit.parents().len() == 1)
         // we map each commit to the list of files it has touched
-        .map(|commit| {
-            // we can iter only on `commit.parent()` right?
-            commit
-                .parents()
-                .fold((commit, Vec::new()), |(commit, mut acc), parent| {
-                    let diff = repo
-                        .diff_tree_to_tree(
-                            Some(parent.tree().as_ref().unwrap()),
-                            Some(commit.tree().as_ref().unwrap()),
-                            None,
-                        )
-                        .unwrap();
-
-                    // this is probably very long to do
-                    let mut new_diffs = diff
-                        .deltas()
-                        .map(|delta| delta.new_file().path().unwrap().to_path_buf())
-                        .collect::<Vec<_>>();
-
-                    acc.append(&mut new_diffs);
-
-                    (commit, acc)
-                })
-        })
-        // now we fold again, splitting into two vectors - the commits which have touched files other than gcc/{,testsuite}/rust and the rest
-        // TODO: this needs to be updated once we will have upstreamed libgrust/
         .fold(
             (Vec::new(), Vec::new()),
-            |(mut rust_commits, mut maybe_stage), (commit, files_touched)| {
-                if files_touched.into_iter().any(|path| {
-                    !(path.starts_with("gcc/rust/") || path.starts_with("gcc/testsuite/rust"))
-                }) {
-                    maybe_stage.push(commit);
+            |(mut rust_commits, mut maybe_to_stage), commit| {
+                // we can iter only on `commit.parent()` right?
+                let parent = commit.parents().next().unwrap();
+                let diff = repo
+                    .diff_tree_to_tree(
+                        Some(parent.tree().as_ref().unwrap()),
+                        Some(commit.tree().as_ref().unwrap()),
+                        None,
+                    )
+                    .unwrap();
+
+                let touches_common_parts = diff
+                    .deltas()
+                    // Is that okay? What  about deleting common files
+                    .filter_map(|delta| delta.new_file().path())
+                    .any(|path| {
+                        !(path.starts_with("gcc/rust/") || path.starts_with("gcc/testsuite/rust"))
+                    });
+
+                if touches_common_parts {
+                    maybe_to_stage.push(commit);
                 } else {
                     rust_commits.push(commit);
                 }
 
-                (rust_commits, maybe_stage)
+                (rust_commits, maybe_to_stage)
             },
         );
+
+    let end = Instant::now();
+    info!(
+        "commit collection took {} seconds",
+        (end - start).as_secs_f32()
+    );
 
     warn!("bringing over {} commits", rust_commits.len());
     warn!("might need to stage {} commits", maybe_to_stage.len());
 
     let now = Local::now();
     let branch_name = format!("prepare-{}-{}", now.date_naive(), now.timestamp_micros());
+    let gcc_patch_dev = repo
+        .find_branch("gcc-patch-dev", BranchType::Local)
+        .unwrap()
+        .into_reference()
+        .peel_to_commit()
+        .unwrap();
 
     info!("creating branch {branch_name}");
 
-    let branch = repo.branch(&branch_name, &repo.find_commit(ours).unwrap(), true)?;
+    let branch = repo.branch(&branch_name, &gcc_patch_dev, true)?;
     repo.set_head(branch.into_reference().name().unwrap())?;
 
-    rust_commits.into_iter().for_each(|commit| {
-        // FIMXE: We need to edit the commit's message
-        info!("cherry-picking {commit:?}");
+    // rust_commits.into_iter().for_each(|commit| {
+    //     // FIMXE: We need to edit the commit's message
+    //     info!("cherry-picking {commit:?}");
 
-        repo.cherrypick(commit, None).unwrap();
+    //     repo.cherrypick(commit, None).unwrap();
 
-        let head = repo.head().unwrap().peel_to_commit().unwrap();
-        let mut parents = vec![head];
-        parents.append(&mut commit.parents().collect::<Vec<Commit>>());
+    //     let head = repo.head().unwrap().peel_to_commit().unwrap();
+    //     let mut parents = vec![head];
+    //     parents.append(&mut commit.parents().collect::<Vec<Commit>>());
 
-        let parents = parents.iter().collect::<Vec<&Commit>>();
+    //     let parents = parents.iter().collect::<Vec<&Commit>>();
 
-        let tree = repo.index().unwrap().write_tree().unwrap();
-        let tree = repo.find_tree(tree).unwrap();
+    //     let tree = repo.index().unwrap().write_tree().unwrap();
+    //     let tree = repo.find_tree(tree).unwrap();
 
-        repo.commit(
-            Some("HEAD"),
-            &commit.author(),
-            &commit.committer(), // FIXME: Should this be gerris? me?
-            &format!("gccrs: {}", commit.message().unwrap()),
-            &tree,
-            parents.as_slice(),
-        )
-        .unwrap();
-    });
+    //     repo.commit(
+    //         Some("HEAD"),
+    //         &commit.author(),
+    //         &commit.committer(), // FIXME: Should this be gerris? me?
+    //         &format!("gccrs: {}", commit.message().unwrap()),
+    //         &tree,
+    //         parents.as_slice(),
+    //     )
+    //     .unwrap();
+    // });
 
     let mut origin = repo.find_remote("origin")?;
     origin.push(&[&branch_name], None)?;
@@ -323,18 +321,18 @@ pub async fn prepare_commits(
         .build()
         .unwrap();
 
-    // instance
-    //     .pulls("cohenarthur", "gccrs")
-    //     .create(
-    //         format!("Commits to upstream: {}", Local::now().date_naive()),
-    //         new_branch,
-    //         branch,
-    //     )
-    //     .body("Hey there! I'm gerris :)")
-    //     .maintainer_can_modify(true)
-    //     .send()
-    //     .await
-    //     .unwrap();
+    instance
+        .pulls("cohenarthur", "gccrs")
+        .create(
+            format!("Commits to upstream: {}", Local::now().date_naive()),
+            new_branch,
+            branch,
+        )
+        .body("Hey there! I'm gerris :)")
+        .maintainer_can_modify(true)
+        .send()
+        .await
+        .unwrap();
 
     todo!()
 }
