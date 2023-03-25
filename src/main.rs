@@ -20,7 +20,7 @@ enum SubCmd {
     /// been formatted properly for upstreaming.
     Upstream {
         #[arg(short, long, help = "GitHub token to perform actions as gerris")]
-        token: String,
+        token: Option<String>,
         #[arg(
             long,
             help = "Branch on which to base the pull-request gerris will create"

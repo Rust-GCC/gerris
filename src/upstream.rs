@@ -63,11 +63,11 @@ use std::{error, io};
 
 use chrono::Local;
 use git2::{BranchType, Commit, Oid, Repository, Revwalk, Sort};
-use log::{info, warn};
+use log::{error, info, warn};
 use octocrab::OctocrabBuilder;
 
 pub struct UpstreamOpt {
-    pub token: String,
+    pub token: Option<String>,
     pub branch: String,
     pub gccrs: PathBuf,
 }
@@ -112,14 +112,17 @@ fn init_workspace(gccrs: &Path) -> Result<Repository, Error> {
     let repo = Repository::open(gccrs)?;
 
     let get_remote = |remote, url| {
+        info!("fetching remote {remote} at {url}");
         repo.find_remote(remote)
             .or_else(|_| repo.remote(remote, url))
     };
 
     {
         let mut github = get_remote("github", "https://github.com/rust-gcc/gccrs")?;
+        let mut gcc = get_remote("gcc", "git://gcc.gnu.org/git/gcc.git")?;
 
         github.fetch(&["master", "gcc-patch-dev"], None, None)?;
+        gcc.fetch(&["master"], None, None)?;
     }
 
     Ok(repo)
@@ -324,23 +327,27 @@ pub async fn prepare_commits(
 ) -> Result<(), Error> {
     let new_branch = prepare_branch(&gccrs)?;
 
-    let instance = OctocrabBuilder::new()
-        .personal_token(token)
-        .build()
-        .unwrap();
+    if let Some(token) = token {
+        let instance = OctocrabBuilder::new()
+            .personal_token(token)
+            .build()
+            .unwrap();
 
-    instance
-        .pulls("cohenarthur", "gccrs")
-        .create(
-            format!("Commits to upstream: {}", Local::now().date_naive()),
-            new_branch,
-            branch,
-        )
-        .body("Hey there! I'm gerris :)")
-        .maintainer_can_modify(true)
-        .send()
-        .await
-        .unwrap();
+        instance
+            .pulls("cohenarthur", "gccrs")
+            .create(
+                format!("Commits to upstream: {}", Local::now().date_naive()),
+                new_branch,
+                branch,
+            )
+            .body("Hey there! I'm gerris :)")
+            .maintainer_can_modify(true)
+            .send()
+            .await
+            .unwrap();
+    } else {
+        error!("no github token provided - skipping pull-request creation!")
+    }
 
     todo!()
 }
