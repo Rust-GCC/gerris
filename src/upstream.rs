@@ -56,6 +56,7 @@
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::string;
 use std::time::Instant;
 use std::{error, io};
@@ -275,34 +276,41 @@ fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
     let branch = repo.branch(&branch_name, &gcc_patch_dev, true)?;
     repo.set_head(branch.into_reference().name().unwrap())?;
 
-    // rust_commits.into_iter().for_each(|commit| {
-    //     // FIMXE: We need to edit the commit's message
-    //     info!("cherry-picking {commit:?}");
+    rust_commits.into_iter().for_each(|commit| {
+        // FIMXE: We need to edit the commit's message
+        info!("cherry-picking {commit:?}");
 
-    //     repo.cherrypick(commit, None).unwrap();
+        repo.cherrypick(commit, None).unwrap();
 
-    //     let head = repo.head().unwrap().peel_to_commit().unwrap();
-    //     let mut parents = vec![head];
-    //     parents.append(&mut commit.parents().collect::<Vec<Commit>>());
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        let mut parents = vec![head];
+        parents.append(&mut commit.parents().collect::<Vec<Commit>>());
 
-    //     let parents = parents.iter().collect::<Vec<&Commit>>();
+        let parents = parents.iter().collect::<Vec<&Commit>>();
 
-    //     let tree = repo.index().unwrap().write_tree().unwrap();
-    //     let tree = repo.find_tree(tree).unwrap();
+        let tree = repo.index().unwrap().write_tree().unwrap();
+        let tree = repo.find_tree(tree).unwrap();
 
-    //     repo.commit(
-    //         Some("HEAD"),
-    //         &commit.author(),
-    //         &commit.committer(), // FIXME: Should this be gerris? me?
-    //         &format!("gccrs: {}", commit.message().unwrap()),
-    //         &tree,
-    //         parents.as_slice(),
-    //     )
-    //     .unwrap();
-    // });
+        repo.commit(
+            Some("HEAD"),
+            &commit.author(),
+            &commit.committer(), // FIXME: Should this be gerris? me?
+            &format!("gccrs: {}", commit.message().unwrap()),
+            &tree,
+            parents.as_slice(),
+        )
+        .unwrap();
+    });
 
-    let mut origin = repo.find_remote("origin")?;
-    origin.push(&[&branch_name], None)?;
+    // FIXME: maybe just git push -u origin HEAD for now... but yeah this needs fixing
+    // let mut origin = repo.find_remote("origin")?;
+    // origin.push(&[&format!("refs/heads/{branch_name}")], None)?;
+
+    std::env::set_current_dir(gccrs)?;
+    Command::new("git")
+        .args(["push", "-u", "origin", "head"])
+        .spawn()?
+        .wait()?;
 
     Ok(branch_name)
 }
