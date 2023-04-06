@@ -304,15 +304,9 @@ fn prepare_branch(gccrs: &Path, ssh: &Path) -> Result<String, Error> {
         .unwrap();
     });
 
-    warn!("ARTHUR {}", line!());
-
     let mut callbacks = RemoteCallbacks::new();
-    warn!("ARTHUR {}", line!());
     callbacks
         .credentials(|_url, username_from_url, _allowed_types| {
-            info!("credentials cb: username_from_url: {:?}", username_from_url);
-            info!("credentials cb:               url: {:?}", _url);
-            info!("credentials cb:     allowed_types: {:?}", _allowed_types);
             Cred::ssh_key(username_from_url.unwrap(), None, ssh, None)
         })
         .push_update_reference(|name, status| {
@@ -325,23 +319,11 @@ fn prepare_branch(gccrs: &Path, ssh: &Path) -> Result<String, Error> {
             Ok(())
         });
 
-    warn!("ARTHUR {}", line!());
     let mut options = PushOptions::new();
     options.remote_callbacks(callbacks);
-    warn!("ARTHUR {}", line!());
-
-    warn!("ARTHUR {}", line!());
     let mut origin = repo.find_remote("origin")?;
-    warn!("ARTHUR {}", line!());
-    warn!("ARTHUR {}", line!());
-    // let _handle = origin.connect_auth(git2::Direction::Push, Some(callbacks), None)?;
-    origin.push(&[&branch_name], Some(&mut options))?;
-    warn!("ARTHUR {}", line!());
-    origin.connect(git2::Direction::Push)?;
+    origin.push(&[&format!("refs/heads/{branch_name}")], Some(&mut options))?;
 
-    // origin.push(&[&format!("refs/heads/{branch_name}")], None)?;
-
-    warn!("ARTHUR {}", line!());
     Ok(branch_name)
 }
 
