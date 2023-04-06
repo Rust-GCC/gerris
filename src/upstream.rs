@@ -55,28 +55,32 @@
 // ).create();
 
 use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::string;
 use std::time::Instant;
-use std::{error, io};
 
 use chrono::Local;
-use git2::{BranchType, Commit, Oid, Repository, Revwalk, Sort};
+use git2::{
+    BranchType, Commit, Cred, Oid, PushOptions, RemoteCallbacks, Repository, Revwalk, Sort,
+};
 use log::{error, info, warn};
 use octocrab::OctocrabBuilder;
+use thiserror::Error;
 
 pub struct UpstreamOpt {
     pub token: Option<String>,
     pub branch: String,
     pub gccrs: PathBuf,
+    pub ssh: PathBuf,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
-    Io(io::Error),
-    Utf8(string::FromUtf8Error),
-    Git(git2::Error),
+    Io(#[from] io::Error),
+    Utf8(#[from] string::FromUtf8Error),
+    Git(#[from] git2::Error),
 }
 
 impl Display for Error {
@@ -85,27 +89,10 @@ impl Display for Error {
     }
 }
 
-impl error::Error for Error {}
-
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Self {
-        Error::Io(err)
-    }
-}
-
-impl From<string::FromUtf8Error> for Error {
-    fn from(err: string::FromUtf8Error) -> Self {
-        Error::Utf8(err)
-    }
-}
-
-impl From<git2::Error> for Error {
-    fn from(err: git2::Error) -> Self {
-        Error::Git(err)
-    }
-}
 fn init_workspace(gccrs: &Path) -> Result<Repository, Error> {
     // do we assume there's already a valid clone of gccrs here?
+
+    Command::new("git").args(["remote", "add", "gcc", "git://gcc.gnu.org/git/gcc.git"]);
 
     info!("workspace: {}", gccrs.display());
 
@@ -146,13 +133,18 @@ fn last_prepared_commit(repo: &Repository, walker: &mut Revwalk) -> Result<Strin
 
     info!("last commit prepared: {:?}", &last_prepared_commit);
 
-    let last_commit_msg = last_prepared_commit
-        .message()
-        .unwrap()
-        .strip_prefix("gccrs: ")
-        .unwrap();
+    let last_commit_msg = last_prepared_commit.message().unwrap();
+    // .strip_prefix("gccrs: ")
+    // .unwrap();
 
     walker.reset()?;
+
+    info!(
+        "last prepared commit: {:?}",
+        last_prepared_commit
+            .message()
+            .and_then(|msg| msg.lines().next())
+    );
 
     Ok(String::from(last_commit_msg))
 }
@@ -186,7 +178,7 @@ fn equivalent_github_commit(
     Ok(ours)
 }
 
-fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
+fn prepare_branch(gccrs: &Path, ssh: &Path) -> Result<String, Error> {
     let repo = init_workspace(gccrs)?;
     let mut walker = repo.revwalk()?;
     let last_commit = last_prepared_commit(&repo, &mut walker)?;
@@ -246,6 +238,9 @@ fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
                         !(path.starts_with("gcc/rust/") || path.starts_with("gcc/testsuite/rust"))
                     });
 
+                // FIXME: Should probably check if the commit's parent is in `maybe_to_stage`, in which case it
+                // should be added there as well? Or is that invalid?
+
                 if touches_common_parts {
                     maybe_to_stage.push(commit);
                 } else {
@@ -279,6 +274,10 @@ fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
     let branch = repo.branch(&branch_name, &gcc_patch_dev, true)?;
     repo.set_head(branch.into_reference().name().unwrap())?;
 
+    rust_commits.iter().for_each(|commit| {
+        println!("{}", commit.id());
+    });
+
     rust_commits.into_iter().for_each(|commit| {
         // FIMXE: We need to edit the commit's message
         info!("cherry-picking {commit:?}");
@@ -305,15 +304,25 @@ fn prepare_branch(gccrs: &Path) -> Result<String, Error> {
         .unwrap();
     });
 
-    // FIXME: maybe just git push -u origin HEAD for now... but yeah this needs fixing
-    // let mut origin = repo.find_remote("origin")?;
-    // origin.push(&[&format!("refs/heads/{branch_name}")], None)?;
+    let mut callbacks = RemoteCallbacks::new();
+    callbacks
+        .credentials(|_url, username_from_url, _allowed_types| {
+            Cred::ssh_key(username_from_url.unwrap(), None, ssh, None)
+        })
+        .push_update_reference(|name, status| {
+            if let Some(status) = status {
+                error!("push from `{name}`` was rejected: `{status}`");
+            } else {
+                info!("push was ok! `{name}`");
+            }
 
-    std::env::set_current_dir(gccrs)?;
-    Command::new("git")
-        .args(["push", "-u", "origin", "head"])
-        .spawn()?
-        .wait()?;
+            Ok(())
+        });
+
+    let mut options = PushOptions::new();
+    options.remote_callbacks(callbacks);
+    let mut origin = repo.find_remote("origin")?;
+    origin.push(&[&format!("refs/heads/{branch_name}")], Some(&mut options))?;
 
     Ok(branch_name)
 }
@@ -323,9 +332,10 @@ pub async fn prepare_commits(
         token,
         branch,
         gccrs,
+        ssh,
     }: UpstreamOpt,
 ) -> Result<(), Error> {
-    let new_branch = prepare_branch(&gccrs)?;
+    let new_branch = prepare_branch(&gccrs, &ssh)?;
 
     if let Some(token) = token {
         let instance = OctocrabBuilder::new()
