@@ -14,7 +14,8 @@
 // # we must look for the message of the last commit so that we can find it on our branch
 // # with this system sadly, shas are different between GCC's upstream and us
 // where last_title = git.log().grep("gccrs: ").amount(1).on(gcc).msg;
-// # how does this work if someone pushed a commit prefixed by "gccrs: " on `us`?
+//
+// # FIXME: how does this work if someone pushed a commit prefixed by "gccrs: " on `us`?
 // where last_title = last_title.strip_leading("gccrs: ");
 // where last_upstreamed_commit_us = git.log().grep(last_title).format(Hash).amount(2).on(us);
 //
@@ -26,21 +27,21 @@
 // where branch = git.branch("prepare-{Date.today()}").create().rebase(us);
 //
 // # we can modify each of them to add the "gccrs: " prefix and check it
-// rev_list.for_each(commit => {
+// rev_list.for_each(commit -> {
 //     git.cherry_pick(commit);
 //     where msg = git.log().amount(1).format(Body);
 //     git.commit.amend().message("gccrs: {msg}");
 // })
 //
 // # figure out which commits might need to be skipped due to staging
-// where maybe_skip = rev_list.filter(commit => {
+// where maybe_skip = rev_list.filter(commit -> {
 //     # can this be done using git show -1 -- gcc/{,testsuite}/rust and checking the line amount?
 //     !git.show(commit).amount(1).contains("gcc/rust") &&
 //     !git.show(commit).amount(1).contains("gcc/testsuite/rust")
 // });
 // where msg = maybe_skip.fold(
 //     "Careful: these commits touch on common GCC directories - they might need to be skipped due to the current GCC stage:\n",
-//     (msg, commit) => "msg\n- {commit}"
+//     (msg, commit) -> "msg\n- {commit}"
 // )
 //
 // # push our branch and create the PR
@@ -50,7 +51,7 @@
 //     base: "gcc-patch-dev",
 //     repo: "rust-gcc/gccrs",
 //     message: msg,
-//     reviewers: ["cohenarthur", "philberty"],
+//     reviewers: ["cohenarthur", "p-e-", "philberty"],
 //     labels: ["upstream"]
 // ).create();
 
