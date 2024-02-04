@@ -7,6 +7,7 @@ use clap::{Parser, Subcommand};
 // FIXME: If not, use nom instead of the hand-written combinator
 
 mod clog;
+mod git;
 mod parser;
 mod upstream;
 
@@ -57,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
             work,
             ssh,
         } => {
-            upstream::prepare_commits(upstream::UpstreamOpt {
+            upstream::prepare_commitsv2(upstream::UpstreamOpt {
                 token,
                 branch: to,
                 gccrs: work,

@@ -51,16 +51,34 @@
 //     base: "gcc-patch-dev",
 //     repo: "rust-gcc/gccrs",
 //     message: msg,
-//     reviewers: ["cohenarthur", "p-e-", "philberty"],
+//     reviewers: ["cohenarthur", "p-e-p", "philberty"],
 //     labels: ["upstream"]
 // ).create();
 
+// shell script equivalent:
+//
+// git fetch gcc
+// git fetch upstream
+// # FIXME: The remotes need to exist already
+//
+// last_pushed_commit=$(git log -1 --grep "gccrs: " gcc/trunk --format="title")
+// last_msg = last_pushed_commit.strip_prefix("gccrs: ");
+// last_commit_us=$(git log -1 --grep $last_msg upstream/master --format="%h")
+// rev_list=$(git rev-list --no-merges $last_commit_us..upstream/master ^gcc/trunk -- gcc/rust/ libgrust/ gcc/testsuite/rust)
+//
+// git checkout -b $date
+// for commit in rev_list.lines()
+//     git cherry-pick $commit
+//
+// git push -u origin HEAD
+// create_pr()
+
 use std::fmt::{Display, Formatter, Result as FmtResult};
-use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::string;
 use std::time::Instant;
+use std::{fs, io};
 
 use chrono::Local;
 use git2::{
@@ -82,6 +100,7 @@ pub enum Error {
     Io(#[from] io::Error),
     Utf8(#[from] string::FromUtf8Error),
     Git(#[from] git2::Error),
+    Gitv2(#[from] git::Error),
 }
 
 impl Display for Error {
@@ -164,6 +183,7 @@ fn equivalent_github_commit(
         .unwrap();
 
     let to_find = to_find.lines().next().unwrap();
+    let to_find = to_find.strip_prefix("gccrs: ").or(Some(to_find)).unwrap();
 
     walker.push(github.target().unwrap())?;
 
@@ -172,6 +192,8 @@ fn equivalent_github_commit(
             let msg = repo.find_commit(*commit.as_ref().unwrap()).unwrap();
             let msg = msg.message();
 
+            // :sob: :sob: :sob:
+            // this goes crazy if the commit starts with "gccrs: "
             msg.unwrap().lines().next() == Some(to_find)
         })
         .unwrap()?;
@@ -196,7 +218,10 @@ fn prepare_branch(gccrs: &Path, ssh: &Path) -> Result<String, Error> {
     walker.reset()?;
     // FIXME: Need to ignore merge commits
     walker.set_sorting(Sort::REVERSE)?;
+
+    // we're not interested in the commits that are already present on `trunk` - which we could have brought in our remote by doing a merge/sync-up
     walker.hide(gcc.target().unwrap())?;
+
     walker.push_range(&format!("{ours}..refs/remotes/github/master"))?;
     // walker.push(ours)?;
     // walker.push(github.target().unwrap())?;
@@ -211,6 +236,16 @@ fn prepare_branch(gccrs: &Path, ssh: &Path) -> Result<String, Error> {
     let all_commits = walker
         .map(|commit| repo.find_commit(commit.unwrap()).unwrap())
         .collect::<Vec<Commit>>();
+
+    info!("all commits: {} commits", all_commits.len());
+
+    let all_ids = all_commits.iter().fold(String::new(), |mut acc, commit| {
+        acc.push_str(&format!("{}\n", commit.id()));
+
+        acc
+    });
+
+    fs::write(Path::new("list.gerris"), all_ids).unwrap();
 
     let (rust_commits, maybe_to_stage) = all_commits
         .iter()
@@ -275,15 +310,22 @@ fn prepare_branch(gccrs: &Path, ssh: &Path) -> Result<String, Error> {
     let branch = repo.branch(&branch_name, &gcc_patch_dev, true)?;
     repo.set_head(branch.into_reference().name().unwrap())?;
 
-    rust_commits.iter().for_each(|commit| {
-        println!("{}", commit.id());
-    });
-
     rust_commits.into_iter().for_each(|commit| {
-        // FIMXE: We need to edit the commit's message
+        // FIXME: We need to edit the commit's message
         info!("cherry-picking {commit:?}");
 
         repo.cherrypick(commit, None).unwrap();
+
+        let index = repo.index().unwrap();
+
+        if index.has_conflicts() {
+            error!("there are conflicts!!!!");
+            let conflicts = index.conflicts().unwrap();
+            conflicts.for_each(|conflict| {
+                let conflict = conflict.unwrap();
+                dbg!(conflict.their);
+            });
+        }
 
         let head = repo.head().unwrap().peel_to_commit().unwrap();
         let mut parents = vec![head];
@@ -326,6 +368,133 @@ fn prepare_branch(gccrs: &Path, ssh: &Path) -> Result<String, Error> {
     origin.push(&[&format!("refs/heads/{branch_name}")], Some(&mut options))?;
 
     Ok(branch_name)
+}
+
+struct CdRaii {
+    old_path: PathBuf,
+}
+
+impl CdRaii {
+    // FIXME: Fix API, fix argument type (do not use str)
+    pub fn change_path<P>(path: P) -> Result<CdRaii, io::Error>
+    where
+        P: AsRef<Path>,
+    {
+        let old_path = std::env::current_dir()?;
+
+        std::env::set_current_dir(path)?;
+
+        Ok(CdRaii { old_path })
+    }
+}
+
+// shell script equivalent:
+//
+// git fetch gcc
+// git fetch upstream
+// # FIXME: The remotes need to exist already
+//
+// last_pushed_commit=$(git log -1 --grep "gccrs: " gcc/trunk --format="title")
+// last_msg = last_pushed_commit.strip_prefix("gccrs: ");
+// last_commit_us=$(git log -1 --grep $last_msg upstream/master --format="%h")
+// rev_list=$(git rev-list --no-merges $last_commit_us..upstream/master ^gcc/trunk -- gcc/rust/ libgrust/ gcc/testsuite/rust)
+//
+// git checkout -b $date
+// for commit in rev_list.lines()
+//     git cherry-pick $commit
+//
+// git push -u origin HEAD
+// create_pr()
+
+use crate::git::{self, GitCmd};
+
+pub async fn prepare_commitsv2(
+    UpstreamOpt {
+        token,
+        branch,
+        gccrs,
+        ssh: _ssh, // FIXME: Use ssh key for pushing
+    }: UpstreamOpt,
+) -> Result<(), Error> {
+    // let _ = CdRaii::change_path(gccrs);
+    std::env::set_current_dir(gccrs)?;
+
+    git::fetch().remote("upstream").spawn()?;
+    git::fetch().remote("gcc").spawn()?;
+
+    let last_upstreamed_commit = git::log()
+        .amount(1)
+        .grep("gccrs: ")
+        .branch(git::Branch("gcc/trunk"))
+        .format(git::Format::Title)
+        .spawn()?;
+    let last_upstreamed_commit = String::from_utf8(last_upstreamed_commit.stdout)?;
+
+    let last_msg = last_upstreamed_commit
+        .strip_prefix("gccrs: ")
+        .unwrap()
+        .trim_end();
+
+    let last_commit_us = git::log()
+        .amount(1)
+        .grep(last_msg)
+        .branch(git::Branch("upstream/master"))
+        .grep(last_msg)
+        .format(git::Format::Hash)
+        .spawn()?;
+    let last_commit_us = String::from_utf8(last_commit_us.stdout)?;
+    let last_commit_us = last_commit_us.trim_end();
+
+    let rev_list = git::rev_list(last_commit_us, "upstream/master")
+        .no_merges()
+        .reverse()
+        .exclude(git::Branch("gcc/trunk"))
+        .dir("gcc/rust")
+        .dir("gcc/testsuite/rust")
+        .dir("libgrust")
+        .spawn()?;
+    let rev_list = String::from_utf8(rev_list.stdout)?;
+
+    let now = Local::now();
+    let new_branch = format!("prepare-{}-{}", now.date_naive(), now.timestamp_micros());
+    git::branch()
+        .name(&new_branch)
+        .starting_point(git::StartingPoint::Branch("gcc/trunk"))
+        .spawn()?;
+    git::switch(&new_branch).spawn()?;
+
+    rev_list
+        .lines()
+        .try_for_each(|commit| git::cherry_pick(git::Commit(commit)).spawn().map(|_| ()))?;
+
+    std::process::Command::new("git")
+        .args(["push", "-u", "origin", "HEAD"])
+        .spawn()?
+        .wait_with_output()?;
+
+    if let Some(token) = token {
+        let instance = OctocrabBuilder::new()
+            .personal_token(token)
+            .build()
+            .unwrap();
+
+        instance
+            .pulls("cohenarthur", "gccrs")
+            .create(
+                format!("Commits to upstream: {}", Local::now().date_naive()),
+                new_branch,
+                branch,
+            )
+            .body("Hey there! I'm gerris :)")
+            .maintainer_can_modify(true)
+            .send()
+            .await
+            .unwrap();
+    } else {
+        error!("no github token provided - skipping pull-request creation!")
+    }
+
+    Ok(())
 }
 
 pub async fn prepare_commits(
