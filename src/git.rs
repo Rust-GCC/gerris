@@ -6,6 +6,7 @@ use thiserror::Error;
 // TODO: Mark all subcommands types as must use
 mod branch;
 mod cherry_pick;
+mod commit;
 mod fetch;
 mod log;
 mod push;
@@ -14,6 +15,7 @@ mod switch;
 
 pub use branch::{branch, StartingPoint};
 pub use cherry_pick::cherry_pick;
+pub use commit::commit;
 pub use fetch::fetch;
 pub use log::log;
 pub use push::push;
@@ -39,6 +41,7 @@ impl fmt::Display for Error {
 pub enum Format {
     Hash,
     Title,
+    Body,
 }
 
 impl Format {
@@ -46,6 +49,7 @@ impl Format {
         match self {
             Format::Hash => "%h",
             Format::Title => "%s",
+            Format::Body => "%B",
         }
     }
 }

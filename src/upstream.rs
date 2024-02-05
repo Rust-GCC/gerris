@@ -96,8 +96,7 @@ pub struct UpstreamOpt {
 pub enum Error {
     Io(#[from] io::Error),
     Utf8(#[from] string::FromUtf8Error),
-    Git(#[from] git2::Error),
-    Gitv2(#[from] git::Error),
+    Git(#[from] git::Error),
 }
 
 impl Display for Error {
@@ -123,6 +122,22 @@ impl Display for Error {
 //
 // git push -u origin HEAD
 // create_pr()
+
+pub fn maybe_prefix_cherry_picked_commit() -> Result<(), Error> {
+    let msg = git::log().amount(1).format(git::Format::Body).spawn()?;
+    let msg = String::from_utf8(msg.stdout)?;
+
+    let commit = gccrs_tools::Commit::new(msg);
+
+    if let gccrs_tools::Commit::NeedsPrefixing(_) = commit {
+        let new_msg = commit.maybe_prefix();
+
+        info!("commit needs prefixing... adding `gccrs: ` prefix");
+        git::commit().amend().message(new_msg).spawn()?;
+    }
+
+    Ok(())
+}
 
 pub async fn prepare_commits(
     UpstreamOpt {
@@ -191,7 +206,9 @@ pub async fn prepare_commits(
 
     rev_list.lines().try_for_each(|commit| {
         info!("cherry-picking {commit}...");
-        git::cherry_pick(git::Commit(commit)).spawn().map(|_| ())
+        git::cherry_pick(git::Commit(commit)).spawn()?;
+
+        maybe_prefix_cherry_picked_commit()
     })?;
 
     info!("pushing branch...");
