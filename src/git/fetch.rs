@@ -15,7 +15,6 @@ impl Fetch {
     pub fn remote<T: Into<String>>(self, remote: T) -> Fetch {
         Fetch {
             remote: Some(remote.into()),
-            ..self
         }
     }
 }
