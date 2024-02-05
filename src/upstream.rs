@@ -196,10 +196,11 @@ pub async fn prepare_commits(
     })?;
 
     info!("pushing branch...");
-    std::process::Command::new("git")
-        .args(["push", "-u", "origin", "HEAD"])
-        .spawn()?
-        .wait_with_output()?;
+    git::push()
+        .upstream(git::Remote("origin"))
+        // TODO: Rename? This should be .refspec()?
+        .branch(git::Branch("HEAD"))
+        .spawn()?;
 
     if let Some(token) = token {
         info!("creating pull-request...");

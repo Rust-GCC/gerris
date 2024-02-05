@@ -8,6 +8,7 @@ mod branch;
 mod cherry_pick;
 mod fetch;
 mod log;
+mod push;
 mod rev_list;
 mod switch;
 
@@ -15,6 +16,7 @@ pub use branch::{branch, StartingPoint};
 pub use cherry_pick::cherry_pick;
 pub use fetch::fetch;
 pub use log::log;
+pub use push::push;
 pub use rev_list::rev_list;
 pub use switch::switch;
 
@@ -49,6 +51,7 @@ impl Format {
 
 pub struct Branch<T: Into<String>>(pub T);
 pub struct Commit<T: Into<String>>(pub T);
+pub struct Remote<T: Into<String>>(pub T);
 
 pub trait GitCmd: Sized {
     // FIXME: Spawn needs to check the exit code and encode that in its return type - non-zero should be Err
