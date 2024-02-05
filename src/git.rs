@@ -1,5 +1,5 @@
 use std::process::{self, Command, Stdio};
-use std::{fmt, io};
+use std::{fmt, io, str};
 
 use thiserror::Error;
 
@@ -22,6 +22,7 @@ pub use switch::switch;
 pub enum Error {
     IO(#[from] io::Error),
     Status(process::Output),
+    Utf8(#[from] str::Utf8Error),
 }
 
 // FIXME:
@@ -50,9 +51,30 @@ impl Format {
 pub struct Branch<T: Into<String>>(pub T);
 pub struct Commit<T: Into<String>>(pub T);
 
+pub struct Output {
+    pub status: process::ExitStatus,
+    pub stdout: String,
+    pub stderr: Vec<u8>,
+}
+
+impl TryFrom<process::Output> for Output {
+    type Error = str::Utf8Error;
+
+    fn try_from(out: process::Output) -> Result<Self, Self::Error> {
+        let stdout = str::from_utf8(out.stdout.as_slice())?;
+        let stdout = stdout.trim_end().to_string();
+
+        Ok(Output {
+            status: out.status,
+            stderr: out.stderr,
+            stdout,
+        })
+    }
+}
+
 pub trait GitCmd: Sized {
     // FIXME: Spawn needs to check the exit code and encode that in its return type - non-zero should be Err
-    fn spawn(self) -> Result<process::Output, Error> {
+    fn spawn(self) -> Result<Output, Error> {
         let mut cmd = Command::new("git");
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
@@ -61,7 +83,7 @@ pub trait GitCmd: Sized {
         let output = cmd.spawn()?.wait_with_output()?;
 
         if output.status.success() {
-            Ok(output)
+            Ok(output.try_into()?)
         } else {
             Err(Error::Status(output))
         }

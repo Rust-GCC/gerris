@@ -146,8 +146,8 @@ pub async fn prepare_commits(
         .grep("gccrs: ")
         .branch(git::Branch("gcc/trunk"))
         .format(git::Format::Title)
-        .spawn()?;
-    let last_upstreamed_commit = String::from_utf8(last_upstreamed_commit.stdout)?;
+        .spawn()?
+        .stdout;
 
     info!("found last upstreamed commit: {}", last_upstreamed_commit);
 
@@ -162,9 +162,8 @@ pub async fn prepare_commits(
         .branch(git::Branch("upstream/master"))
         .grep(last_msg)
         .format(git::Format::Hash)
-        .spawn()?;
-    let last_commit_us = String::from_utf8(last_commit_us.stdout)?;
-    let last_commit_us = last_commit_us.trim_end();
+        .spawn()?
+        .stdout;
 
     info!("found equivalent commit: {}", last_commit_us);
 
@@ -175,8 +174,8 @@ pub async fn prepare_commits(
         .dir("gcc/rust")
         .dir("gcc/testsuite/rust")
         .dir("libgrust")
-        .spawn()?;
-    let rev_list = String::from_utf8(rev_list.stdout)?;
+        .spawn()?
+        .stdout;
 
     warn!("found {} commits to upstream", rev_list.lines().count());
 
