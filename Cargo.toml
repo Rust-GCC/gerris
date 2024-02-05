@@ -7,4 +7,11 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.68"
-clap = { version = "4.1.4", features = ["derive"] }
+chrono = "0.4.24"
+clap = { version = "4.4.7", features = ["derive"] }
+env_logger = "0.10.0"
+git2 = "0.18.1"
+log = "0.4.20"
+octocrab = "0.33"
+thiserror = "1.0.40"
+tokio = { version = "1.33.0", features = ["full"] }
