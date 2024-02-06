@@ -124,8 +124,11 @@ impl Display for Error {
 // create_pr()
 
 pub fn maybe_prefix_cherry_picked_commit() -> Result<(), Error> {
-    let msg = git::log().amount(1).format(git::Format::Body).spawn()?;
-    let msg = String::from_utf8(msg.stdout)?;
+    let msg = git::log()
+        .amount(1)
+        .format(git::Format::Body)
+        .spawn()?
+        .stdout;
 
     let commit = gccrs_tools::Commit::new(msg);
 
