@@ -142,6 +142,25 @@ pub fn maybe_prefix_cherry_picked_commit() -> Result<(), Error> {
     Ok(())
 }
 
+fn prepare_body(last_commit: String, rev_list: String) -> String {
+    format!(
+        "
+This pull-request aims to help upstreaming commits to the GCC repository by formatting them \
+and checking that they can be cherry-picked/rebased properly.
+
+The last commit upstreamed was:
+
+`{last_commit}`
+        
+The list of commits prepared is as follows:
+        
+{rev_list}
+        
+🐙
+        "
+    )
+}
+
 pub async fn prepare_commits(
     UpstreamOpt {
         token,
@@ -232,11 +251,11 @@ pub async fn prepare_commits(
         instance
             .pulls("cohenarthur", "gccrs")
             .create(
-                format!("Commits to upstream: {}", Local::now().date_naive()),
+                format!("[upstream] [{}] Prepare commits", Local::now().date_naive()),
                 new_branch,
                 branch,
             )
-            .body("Hey there! I'm gerris :)")
+            .body(prepare_body(last_upstreamed_commit, rev_list))
             .maintainer_can_modify(true)
             .send()
             .await
