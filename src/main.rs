@@ -22,20 +22,19 @@ enum SubCmd {
     Upstream {
         #[arg(short, long, help = "GitHub token to perform actions as gerris")]
         token: Option<String>,
+
         #[arg(
             long,
-            help = "Branch on which to base the pull-request gerris will create"
+            help = "branch on which to base the pull-request gerris will create"
         )]
         to: String,
+
         #[arg(
             short,
             long,
-            help = "Work directory which contains a copy of the gccrs respository"
+            help = "work directory which contains a copy of the gccrs respository"
         )]
         work: PathBuf,
-
-        #[arg(short, long, help = "ssh key to use when pushing created branches")]
-        ssh: PathBuf,
     },
 }
 
@@ -52,17 +51,11 @@ async fn main() -> anyhow::Result<()> {
 
     match args.cmd {
         SubCmd::ChangeLogs => clog::check_clog_checker_output()?,
-        SubCmd::Upstream {
-            token,
-            to,
-            work,
-            ssh,
-        } => {
+        SubCmd::Upstream { token, to, work } => {
             upstream::prepare_commits(upstream::UpstreamOpt {
                 token,
                 branch: to,
                 gccrs: work,
-                ssh,
             })
             .await?
         }
