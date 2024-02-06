@@ -89,7 +89,6 @@ pub struct UpstreamOpt {
     pub token: Option<String>,
     pub branch: String,
     pub gccrs: PathBuf,
-    pub ssh: PathBuf,
 }
 
 #[derive(Debug, Error)]
@@ -166,7 +165,6 @@ pub async fn prepare_commits(
         token,
         branch,
         gccrs,
-        ssh: _ssh, // FIXME: Use ssh key for pushing
     }: UpstreamOpt,
 ) -> Result<(), Error> {
     // let _ = CdRaii::change_path(gccrs);
@@ -249,7 +247,7 @@ pub async fn prepare_commits(
             .unwrap();
 
         instance
-            .pulls("cohenarthur", "gccrs")
+            .pulls("rust-gcc", "gccrs")
             .create(
                 format!("[upstream] [{}] Prepare commits", Local::now().date_naive()),
                 new_branch,
