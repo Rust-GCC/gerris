@@ -250,7 +250,8 @@ pub async fn prepare_commits(
             .pulls("rust-gcc", "gccrs")
             .create(
                 format!("[upstream] [{}] Prepare commits", Local::now().date_naive()),
-                new_branch,
+                // FIXME: Will branches always be created and pushed from my fork? Add CLI parameter for this maybe?
+                format!("cohenarthur:{new_branch}"),
                 branch,
             )
             .body(prepare_body(last_upstreamed_commit, rev_list))
