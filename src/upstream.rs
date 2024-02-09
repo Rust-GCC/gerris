@@ -84,11 +84,13 @@ use octocrab::OctocrabBuilder;
 use thiserror::Error;
 
 use crate::git::{self, GitCmd};
+use crate::make;
 
 pub struct UpstreamOpt {
     pub token: Option<String>,
     pub branch: String,
     pub gccrs: PathBuf,
+    pub repo: String,
 }
 
 #[derive(Debug, Error)]
@@ -122,7 +124,7 @@ impl Display for Error {
 // git push -u origin HEAD
 // create_pr()
 
-pub fn maybe_prefix_cherry_picked_commit() -> Result<(), Error> {
+fn maybe_prefix_cherry_picked_commit() -> Result<(), Error> {
     let msg = git::log()
         .amount(1)
         .format(git::Format::Body)
@@ -141,7 +143,41 @@ pub fn maybe_prefix_cherry_picked_commit() -> Result<(), Error> {
     Ok(())
 }
 
-fn prepare_body(last_commit: String, rev_list: String) -> String {
+enum BuildError {
+    Build,
+    Tests,
+}
+
+fn build_prefixed_commit() -> Result<(), BuildError> {
+    let build_dir = PathBuf::from("build-gerris");
+
+    info!("building last applied commit...");
+    make::new()
+        .directory(&build_dir)
+        .jobs(14)
+        .load(6)
+        .spawn()
+        .map_err(|_| BuildError::Build)?;
+
+    info!("testing last applied commit...");
+    let test_output = make::new()
+        .directory(&build_dir)
+        .recipe("check-rust")
+        .jobs(14)
+        .load(6)
+        .spawn()
+        .map_err(|_| BuildError::Tests)?
+        .stdout;
+
+    if test_output.contains("unexpected") || test_output.contains("unresolved") {
+        warn!("unexpected test failure in last commit");
+        Err(BuildError::Tests)
+    } else {
+        Ok(())
+    }
+}
+
+fn prepare_body(last_commit: String, result_tab: String) -> String {
     format!(
         "
 This pull-request aims to help upstreaming commits to the GCC repository by formatting them \
@@ -153,7 +189,7 @@ The last commit upstreamed was:
         
 The list of commits prepared is as follows:
         
-{rev_list}
+{result_tab}
         
 🐙
         "
@@ -165,10 +201,11 @@ pub async fn prepare_commits(
         token,
         branch,
         gccrs,
+        repo,
     }: UpstreamOpt,
-) -> Result<(), Error> {
+) -> Result<(), Error /* FIXME: Should this return another Error type then */> {
     // let _ = CdRaii::change_path(gccrs);
-    std::env::set_current_dir(gccrs)?;
+    std::env::set_current_dir(&gccrs)?;
 
     info!("fetching `upstream`...");
     git::fetch().remote("upstream").spawn()?;
@@ -224,12 +261,45 @@ pub async fn prepare_commits(
 
     info!("created branch `{new_branch}`");
 
-    rev_list.lines().try_for_each(|commit| {
-        info!("cherry-picking {commit}...");
-        git::cherry_pick(git::Commit(commit)).spawn()?;
+    let tab = String::from("|Commit|Build|Test|\n|---|:-:|:-:|");
 
-        maybe_prefix_cherry_picked_commit()
-    })?;
+    let tab = rev_list.lines().fold(tab, |tab, commit| {
+        info!("cherry-picking {commit}...");
+
+        // FIXME: Can we unwrap here?
+        git::cherry_pick(git::Commit(commit))
+            .spawn()
+            .expect("couldn't cherry pick commit");
+
+        let checks = build_prefixed_commit();
+
+        enum CheckResult {
+            BuildFailure,
+            TestFailure,
+            AllOk,
+        }
+
+        let result = match checks {
+            Ok(_) => CheckResult::AllOk,
+            Err(BuildError::Build) => CheckResult::BuildFailure,
+            Err(BuildError::Tests) => CheckResult::TestFailure,
+        };
+
+        // FIXME: Can we unwrap here?
+        maybe_prefix_cherry_picked_commit().expect("couldn't prefix commit");
+
+        let build_result = match result {
+            CheckResult::BuildFailure => "❌",
+            CheckResult::TestFailure | CheckResult::AllOk => "✅",
+        };
+
+        let test_result = match result {
+            CheckResult::AllOk => "✅",
+            _ => "❌",
+        };
+
+        format!("{tab}\n|{commit}|{build_result}|{test_result}|")
+    });
 
     info!("pushing branch...");
     git::push()
@@ -247,14 +317,14 @@ pub async fn prepare_commits(
             .unwrap();
 
         instance
-            .pulls("rust-gcc", "gccrs")
+            .pulls(repo, "gccrs")
             .create(
                 format!("[upstream] [{}] Prepare commits", Local::now().date_naive()),
                 // FIXME: Will branches always be created and pushed from my fork? Add CLI parameter for this maybe?
                 format!("cohenarthur:{new_branch}"),
                 branch,
             )
-            .body(prepare_body(last_upstreamed_commit, rev_list))
+            .body(prepare_body(last_upstreamed_commit, tab))
             .maintainer_can_modify(true)
             .send()
             .await

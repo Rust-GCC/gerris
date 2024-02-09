@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 
 mod clog;
 pub mod git;
+mod make;
 mod parser;
 mod upstream;
 
@@ -35,6 +36,13 @@ enum SubCmd {
             help = "work directory which contains a copy of the gccrs respository"
         )]
         work: PathBuf,
+
+        #[arg(
+            short,
+            long,
+            help = "repository on which to submit the GitHub pull-request"
+        )]
+        repo: String,
     },
 }
 
@@ -51,11 +59,17 @@ async fn main() -> anyhow::Result<()> {
 
     match args.cmd {
         SubCmd::ChangeLogs => clog::check_clog_checker_output()?,
-        SubCmd::Upstream { token, to, work } => {
+        SubCmd::Upstream {
+            token,
+            to,
+            work,
+            repo,
+        } => {
             upstream::prepare_commits(upstream::UpstreamOpt {
                 token,
                 branch: to,
                 gccrs: work,
+                repo,
             })
             .await?
         }
