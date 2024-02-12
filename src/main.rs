@@ -7,9 +7,10 @@ use clap::{Parser, Subcommand};
 // FIXME: If not, use nom instead of the hand-written combinator
 
 mod clog;
-pub mod git;
+mod git;
 mod make;
 mod parser;
+mod shell;
 mod upstream;
 
 #[derive(Clone, Subcommand)]

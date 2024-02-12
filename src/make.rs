@@ -1,10 +1,7 @@
-use std::fmt;
-use std::io;
 use std::path::PathBuf;
-use std::process::{self, Command, Stdio};
-use std::str;
+use std::process::{Command, Stdio};
 
-use thiserror::Error;
+use crate::shell::{self, Error, Output};
 
 #[derive(Default, Debug)]
 pub struct Make {
@@ -12,41 +9,6 @@ pub struct Make {
     jobs: Option<usize>,
     load: Option<usize>,
     recipes: Vec<String>,
-}
-
-// FIXME: Factor these two types in a common type for ::git and this module
-#[derive(Debug)]
-pub struct Output {
-    pub status: process::ExitStatus,
-    pub stdout: String,
-    pub stderr: Vec<u8>,
-}
-#[derive(Debug, Error)]
-pub enum Error {
-    IO(#[from] io::Error),
-    Status(process::Output),
-    Utf8(#[from] str::Utf8Error),
-}
-// FIXME:
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self:#?}")
-    }
-}
-// FIXME:
-impl TryFrom<process::Output> for Output {
-    type Error = str::Utf8Error;
-
-    fn try_from(out: process::Output) -> Result<Self, Self::Error> {
-        let stdout = str::from_utf8(out.stdout.as_slice())?;
-        let stdout = stdout.trim_end().to_string();
-
-        Ok(Output {
-            status: out.status,
-            stderr: out.stderr,
-            stdout,
-        })
-    }
 }
 
 pub fn new() -> Make {
@@ -81,8 +43,10 @@ impl Make {
 
         Make { recipes, ..self }
     }
+}
 
-    pub fn spawn(self) -> Result<Output, Error> {
+impl shell::Command for Make {
+    fn spawn(self) -> Result<Output, Error> {
         let mut cmd = Command::new("make");
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
 
@@ -93,12 +57,6 @@ impl Make {
             cmd.arg(recipe);
         });
 
-        let output = cmd.spawn()?.wait_with_output()?;
-
-        if output.status.success() {
-            Ok(output.try_into()?)
-        } else {
-            Err(Error::Status(output))
-        }
+        Make::spawn_with_output(cmd)
     }
 }

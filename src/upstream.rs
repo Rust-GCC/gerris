@@ -83,8 +83,9 @@ use log::{error, info, warn};
 use octocrab::OctocrabBuilder;
 use thiserror::Error;
 
-use crate::git::{self, GitCmd};
+use crate::git;
 use crate::make;
+use crate::shell::{self, Command};
 
 pub struct UpstreamOpt {
     pub token: Option<String>,
@@ -97,7 +98,7 @@ pub struct UpstreamOpt {
 pub enum Error {
     Io(#[from] io::Error),
     Utf8(#[from] string::FromUtf8Error),
-    Git(#[from] git::Error),
+    Shell(#[from] shell::Error),
 }
 
 impl Display for Error {
