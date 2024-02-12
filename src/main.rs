@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 
 mod clog;
 mod git;
+mod github;
 mod make;
 mod parser;
 mod shell;
