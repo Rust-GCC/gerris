@@ -176,6 +176,24 @@ fn build_prefixed_commit() -> Result<(), BuildError> {
     }
 }
 
+fn escape_regex_characters(s: &str) -> String {
+    let is_regex_character = |c| match c {
+        // FIXME: Add more regex characters as understood by git grep
+        '*' | '+' | '?' => true,
+        _ => false,
+    };
+
+    s.chars().into_iter().fold(String::new(), |mut acc, c| {
+        if is_regex_character(c) {
+            acc.push('\\');
+        }
+
+        acc.push(c);
+
+        acc
+    })
+}
+
 pub async fn prepare_commits(
     UpstreamOpt {
         token,
@@ -199,6 +217,7 @@ pub async fn prepare_commits(
         .format(git::Format::Title)
         .spawn()?
         .stdout;
+    let last_upstreamed_commit = "gccrs: Fix macro parsing for trait items.".to_string();
 
     info!("found last upstreamed commit: {}", last_upstreamed_commit);
 
@@ -206,15 +225,15 @@ pub async fn prepare_commits(
         .strip_prefix("gccrs: ")
         .unwrap()
         .trim_end();
+    let last_msg = escape_regex_characters(last_msg);
 
-    let last_commit_us = git::log()
+    let last_commit_us = dbg!(git::log()
         .amount(1)
         .grep(last_msg)
         .branch(git::Branch("upstream/master"))
-        .grep(last_msg)
         .format(git::Format::Hash)
-        .spawn()?
-        .stdout;
+        .spawn()?)
+    .stdout;
 
     info!("found equivalent commit: {}", last_commit_us);
 
@@ -229,6 +248,7 @@ pub async fn prepare_commits(
         .stdout;
 
     warn!("found {} commits to upstream", rev_list.lines().count());
+    info!("rev-list: {}", rev_list);
 
     let now = Local::now();
     let new_branch = format!("prepare-{}-{}", now.date_naive(), now.timestamp_micros());
@@ -240,21 +260,24 @@ pub async fn prepare_commits(
 
     info!("created branch `{new_branch}`");
 
-    let commit_status_iter = rev_list.lines().map(|commit| {
-        info!("cherry-picking {commit}...");
+    let commits = rev_list
+        .lines()
+        .map(|commit| {
+            info!("cherry-picking {commit}...");
 
-        // FIXME: Can we unwrap here?
-        git::cherry_pick(git::Commit(commit))
-            .spawn()
-            .expect("couldn't cherry pick commit");
+            // FIXME: Can we unwrap here?
+            git::cherry_pick(git::Commit(commit))
+                .spawn()
+                .expect("couldn't cherry pick commit");
 
-        let result = build_prefixed_commit().err();
+            let result = build_prefixed_commit().err();
 
-        // FIXME: Can we unwrap here?
-        maybe_prefix_cherry_picked_commit().expect("couldn't prefix commit");
+            // FIXME: Can we unwrap here?
+            maybe_prefix_cherry_picked_commit().expect("couldn't prefix commit");
 
-        (commit, result)
-    });
+            (commit, result)
+        })
+        .collect();
 
     // FIXME: Factor this in a function in github module
     info!("pushing branch...");
@@ -280,10 +303,7 @@ pub async fn prepare_commits(
                 format!("cohenarthur:{new_branch}"),
                 branch,
             )
-            .body(github::prepare_body(
-                last_upstreamed_commit,
-                commit_status_iter,
-            ))
+            .body(github::prepare_body(last_upstreamed_commit, commits))
             .maintainer_can_modify(true)
             .send()
             .await

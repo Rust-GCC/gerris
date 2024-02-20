@@ -14,6 +14,7 @@ pub enum Error {
     Utf8(#[from] str::Utf8Error),
 }
 
+#[derive(Debug)]
 pub struct Output {
     pub status: process::ExitStatus,
     pub stdout: String,

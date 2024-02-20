@@ -6,13 +6,13 @@ use crate::upstream::BuildError;
 const FAILURE: &str = "❌";
 const SUCCESS: &str = "✅";
 
-pub fn prepare_body<'commit>(
+pub fn prepare_body(
     last_commit: String, /* FIXME: Should this be a Commit type? */
-    commit_status_iter: impl Iterator<Item = (&'commit str, Option<BuildError>)>,
+    commits: Vec<(&str, Option<BuildError>)>,
 ) -> String {
     let tab = String::from("|Commit|Build|Test|\n|---|:-:|:-:|");
 
-    let tab = commit_status_iter.fold(tab, |tab, (commit, result)| {
+    let tab = commits.iter().fold(tab, |tab, (commit, result)| {
         let (build_result, test_result) = match result {
             Some(BuildError::Build) => (FAILURE, FAILURE),
             Some(BuildError::Tests) => (SUCCESS, FAILURE),
