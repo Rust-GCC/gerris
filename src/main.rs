@@ -46,6 +46,33 @@ enum SubCmd {
         )]
         repo: String,
     },
+    PullRequest {
+        #[arg(short, long, help = "branch from which to create the pull-request")]
+        branch: String,
+
+        #[arg(short, long, help = "GitHub token to perform actions as gerris")]
+        token: String,
+
+        #[arg(
+            long,
+            help = "branch on which to base the pull-request gerris will create"
+        )]
+        to: String,
+
+        #[arg(
+            short,
+            long,
+            help = "work directory which contains a copy of the gccrs respository and the branch you would like to create a pull-request from (--branch)"
+        )]
+        work: PathBuf,
+
+        #[arg(
+            short,
+            long,
+            help = "repository on which to submit the GitHub pull-request"
+        )]
+        repo: String,
+    },
 }
 
 #[derive(Parser)]
@@ -75,6 +102,13 @@ async fn main() -> anyhow::Result<()> {
             })
             .await?
         }
+        SubCmd::PullRequest {
+            branch,
+            token,
+            to,
+            work,
+            repo,
+        } => upstream::create_pull_request(token, repo, branch, to, work).await?,
     }
 
     Ok(())

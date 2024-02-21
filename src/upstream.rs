@@ -314,3 +314,35 @@ pub async fn prepare_commits(
 
     Ok(())
 }
+
+pub async fn create_pull_request(
+    token: String,
+    repo: String,
+    new_branch: String,
+    base: String,
+    gccrs: PathBuf,
+) -> Result<(), Error> {
+    std::env::set_current_dir(&gccrs)?;
+
+    info!("creating pull-request for `{new_branch}`...");
+
+    let instance = OctocrabBuilder::new()
+        .personal_token(token)
+        .build()
+        .unwrap();
+
+    instance
+        .pulls(repo, "gccrs")
+        .create(
+            format!("[upstream] [{}] Prepare commits", Local::now().date_naive()),
+            // FIXME: Will branches always be created and pushed from my fork? Add CLI parameter for this
+            format!("cohenarthur:{new_branch}"),
+            base,
+        )
+        .maintainer_can_modify(true)
+        .send()
+        .await
+        .unwrap();
+
+    Ok(())
+}
