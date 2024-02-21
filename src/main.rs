@@ -7,8 +7,11 @@ use clap::{Parser, Subcommand};
 // FIXME: If not, use nom instead of the hand-written combinator
 
 mod clog;
-pub mod git;
+mod git;
+mod github;
+mod make;
 mod parser;
+mod shell;
 mod upstream;
 
 #[derive(Clone, Subcommand)]
@@ -35,6 +38,40 @@ enum SubCmd {
             help = "work directory which contains a copy of the gccrs respository"
         )]
         work: PathBuf,
+
+        #[arg(
+            short,
+            long,
+            help = "repository on which to submit the GitHub pull-request"
+        )]
+        repo: String,
+    },
+    PullRequest {
+        #[arg(short, long, help = "branch from which to create the pull-request")]
+        branch: String,
+
+        #[arg(short, long, help = "GitHub token to perform actions as gerris")]
+        token: String,
+
+        #[arg(
+            long,
+            help = "branch on which to base the pull-request gerris will create"
+        )]
+        to: String,
+
+        #[arg(
+            short,
+            long,
+            help = "work directory which contains a copy of the gccrs respository and the branch you would like to create a pull-request from (--branch)"
+        )]
+        work: PathBuf,
+
+        #[arg(
+            short,
+            long,
+            help = "repository on which to submit the GitHub pull-request"
+        )]
+        repo: String,
     },
 }
 
@@ -51,14 +88,27 @@ async fn main() -> anyhow::Result<()> {
 
     match args.cmd {
         SubCmd::ChangeLogs => clog::check_clog_checker_output()?,
-        SubCmd::Upstream { token, to, work } => {
+        SubCmd::Upstream {
+            token,
+            to,
+            work,
+            repo,
+        } => {
             upstream::prepare_commits(upstream::UpstreamOpt {
                 token,
                 branch: to,
                 gccrs: work,
+                repo,
             })
             .await?
         }
+        SubCmd::PullRequest {
+            branch,
+            token,
+            to,
+            work,
+            repo,
+        } => upstream::create_pull_request(token, repo, branch, to, work).await?,
     }
 
     Ok(())
