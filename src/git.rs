@@ -14,7 +14,7 @@ mod rev_list;
 mod switch;
 
 pub use branch::{branch, StartingPoint};
-pub use cherry_pick::cherry_pick;
+pub use cherry_pick::{cherry_pick, cherry_pick_abort};
 pub use commit::commit;
 pub use fetch::fetch;
 pub use log::log;

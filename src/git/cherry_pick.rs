@@ -18,3 +18,16 @@ impl GitCmd for CherryPick {
         cmd.arg("cherry-pick").arg(self.commit);
     }
 }
+
+#[derive(Default)]
+pub struct CherryPickAbort;
+
+pub fn cherry_pick_abort() -> CherryPickAbort {
+    CherryPickAbort
+}
+
+impl GitCmd for CherryPickAbort {
+    fn setup(self, cmd: &mut Command) {
+        cmd.arg("cherry-pick").arg("--abort");
+    }
+}
