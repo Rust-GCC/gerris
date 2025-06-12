@@ -1,0 +1,130 @@
+use crate::git::{self, GitCmd};
+use log::{error, info, warn};
+use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::io;
+use std::path::PathBuf;
+use std::string;
+use thiserror::Error;
+
+pub struct RebaseUpstreamOpt {
+    pub token: Option<String>,
+    pub autosquash: bool,
+    pub linearize: bool,
+    pub no_fetch: bool,
+    pub gcc_upstream_branch: String,
+    pub gccrs_dev_branch: String,
+    pub new_branch: String,
+    pub gccrs: PathBuf,
+    pub ssh: PathBuf,
+}
+
+#[derive(Debug, Error)]
+pub enum Error {
+    Io(#[from] io::Error),
+    Utf8(#[from] string::FromUtf8Error),
+    Git(#[from] git::Error),
+    InvalidInput,
+}
+
+impl Display for Error {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "{self:#?}")
+    }
+}
+
+pub async fn rebase_and_update(
+    RebaseUpstreamOpt {
+        token,
+        autosquash,
+        linearize,
+        no_fetch,
+        gcc_upstream_branch,
+        gccrs_dev_branch,
+        new_branch,
+        gccrs,
+        ssh: _ssh, // FIXME: Use ssh key for pushing
+    }: RebaseUpstreamOpt,
+) -> Result<(), Error> {
+    std::env::set_current_dir(gccrs)?;
+
+    if !no_fetch {
+        git::maybe_fetch_from_branch(&gccrs_dev_branch)?;
+        git::maybe_fetch_from_branch(&gcc_upstream_branch)?;
+    } else {
+        info!("Not fetching from remote.");
+    }
+
+    info!("Switch to new branch, starting from revision {gccrs_dev_branch}");
+    git::switch(&new_branch)
+        .create()
+        .start_point(git::Revision(&gccrs_dev_branch))
+        .force()
+        .spawn()?;
+
+    // find last merge commit
+    let last_merge_commit = String::from_utf8(
+        git::log()
+            .amount(1)
+            .merges(true)
+            .format(git::Format::Hash)
+            .spawn()?
+            .stdout,
+    )?;
+    let last_merge_commit = last_merge_commit.trim().to_string();
+    info!("Last merge commit is {}", last_merge_commit);
+
+    let head_rev = String::from_utf8(
+        git::revparse()
+            .revision(git::Revision("HEAD"))
+            .spawn()?
+            .stdout,
+    )?;
+    let head_rev = head_rev.trim().to_string();
+    info!("Current revision of {gccrs_dev_branch}: {}", head_rev);
+
+    info!("Switching back to {last_merge_commit}");
+    git::switch(&new_branch)
+        .create()
+        .start_point(git::Revision(format!("{}^", last_merge_commit)))
+        .force()
+        .spawn()?;
+
+    // There are some commits after the merge, we need to apply them
+    if head_rev != last_merge_commit {
+        info!("Cherry picking commit in range {last_merge_commit}..{head_rev}");
+        git::cherry_pick(git::Commit(format!("{last_merge_commit}..{head_rev}"))).spawn()?;
+    }
+
+    if !linearize {
+        let mut rebase_cmd = git::rebase(&gcc_upstream_branch);
+
+        if autosquash {
+            info!("Autosquash requested for upcoming rebase");
+            rebase_cmd = rebase_cmd.interactive().autosquash();
+        }
+
+        info!("Rebasing the sequence onto {gcc_upstream_branch}");
+        rebase_cmd.spawn()?;
+    } else {
+        info!("Not rebasing.");
+    }
+
+    info!("Creating new merge commit");
+
+    let merge_commit_message = format!(
+        "Merge remote-tracking branch '{gccrs_dev_branch}' into {new_branch}
+
+This branch has a no-op merge as the last commit:
+ - one arm is the \"current\" development branch from github
+ - the other arm is a rebased version of the \"current\" master branch onto a recent GCC's master
+
+The merge is obtained with \"git merge --strategy=ours\" to only keep the changes from second arm."
+    );
+
+    git::merge(gccrs_dev_branch)
+        .strategy("ours")
+        .message(merge_commit_message)
+        .spawn()?;
+
+    Ok(())
+}

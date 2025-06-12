@@ -73,6 +73,7 @@
 // git push -u origin HEAD
 // create_pr()
 
+use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io;
 use std::path::PathBuf;
@@ -87,7 +88,11 @@ use crate::git::{self, GitCmd};
 
 pub struct UpstreamOpt {
     pub token: Option<String>,
-    pub branch: String,
+    pub no_fetch: bool,
+    pub no_rebase: bool,
+    pub new_branch: String,
+    pub gcc_upstream_branch: String,
+    pub gccrs_dev_branch: String,
     pub gccrs: PathBuf,
     pub ssh: PathBuf,
 }
@@ -98,6 +103,7 @@ pub enum Error {
     Utf8(#[from] string::FromUtf8Error),
     Git(#[from] git2::Error),
     Gitv2(#[from] git::Error),
+    NotAMerge,
 }
 
 impl Display for Error {
@@ -127,7 +133,11 @@ impl Display for Error {
 pub async fn prepare_commits(
     UpstreamOpt {
         token,
-        branch,
+        no_fetch,
+        no_rebase,
+        new_branch,
+        gcc_upstream_branch,
+        gccrs_dev_branch,
         gccrs,
         ssh: _ssh, // FIXME: Use ssh key for pushing
     }: UpstreamOpt,
@@ -135,16 +145,20 @@ pub async fn prepare_commits(
     // let _ = CdRaii::change_path(gccrs);
     std::env::set_current_dir(gccrs)?;
 
-    info!("fetching `upstream`...");
-    git::fetch().remote("upstream").spawn()?;
+    if !no_fetch {
+        info!("fetching `upstream`...");
+        git::fetch().remote("upstream").spawn()?;
 
-    info!("fetching `gcc`...");
-    git::fetch().remote("gcc").spawn()?;
+        info!("fetching `gcc`...");
+        git::fetch().remote("gcc").spawn()?;
+    } else {
+        info!("Not fetching from remotes");
+    }
 
     let last_upstreamed_commit = git::log()
         .amount(1)
         .grep("gccrs: ")
-        .branch(git::Branch("gcc/trunk"))
+        .branch(git::Branch(gcc_upstream_branch))
         .format(git::Format::Title)
         .spawn()?;
     let last_upstreamed_commit = String::from_utf8(last_upstreamed_commit.stdout)?;
@@ -214,7 +228,7 @@ pub async fn prepare_commits(
             .create(
                 format!("Commits to upstream: {}", Local::now().date_naive()),
                 new_branch,
-                branch,
+                &gccrs_dev_branch,
             )
             .body("Hey there! I'm gerris :)")
             .maintainer_can_modify(true)
@@ -225,5 +239,120 @@ pub async fn prepare_commits(
         error!("no github token provided - skipping pull-request creation!")
     }
 
+    Ok(())
+}
+
+pub async fn prepare_commits_bis(
+    UpstreamOpt {
+        token,
+        no_fetch,
+        no_rebase,
+        new_branch,
+        gcc_upstream_branch,
+        gccrs_dev_branch,
+        gccrs,
+        ssh: _ssh, // FIXME: Use ssh key for pushing
+    }: UpstreamOpt,
+) -> Result<(), Error> {
+    std::env::set_current_dir(gccrs)?;
+
+    if !no_fetch {
+        info!("fetching `gccrs`...");
+        git::maybe_fetch_from_branch(&gccrs_dev_branch)?;
+
+        info!("fetching `upstream gcc`...");
+        git::maybe_fetch_from_branch(&gcc_upstream_branch)?;
+    } else {
+        info!("Not fetching from remotes");
+    }
+
+    let last_commit_parents = String::from_utf8(
+        git::show(&gccrs_dev_branch)
+            .no_patch()
+            .format("%P")
+            .spawn()?
+            .stdout,
+    )?;
+
+    let is_merge = last_commit_parents.split(" ").collect::<Vec<_>>().len() > 1;
+    if !is_merge {
+        info!("Last commit is not a merge, can't do anything.");
+        return Err(Error::NotAMerge);
+    } else {
+        info!("Last commit is a merge, continuing.");
+    }
+
+    info!("Switch to new branch, starting from revision {gccrs_dev_branch}^");
+    git::switch(&new_branch)
+        .create()
+        .start_point(git::Revision(format!("{gccrs_dev_branch}^")))
+        .force()
+        .spawn()?;
+
+    let merge_base = String::from_utf8(
+        git::merge_base(&gcc_upstream_branch, &new_branch)
+            .spawn()?
+            .stdout,
+    )?;
+    let merge_base = merge_base.trim().to_string();
+    info!("Merge base is {merge_base}");
+
+    let rev_list_all = git::rev_list(&merge_base, &new_branch).reverse();
+    let all_commits = String::from_utf8(rev_list_all.spawn()?.stdout)?;
+    let mut all_commits: Vec<_> = all_commits.split('\n').collect();
+    let all_commits_count = all_commits.len();
+
+    let do_not_upstream = vec![
+        ".github/",
+        "CODE_OF_CONDUCT.md",
+        "CONTRIBUTING.md",
+        "Dockerfile",
+        "README.md",
+        "logo.png",
+        "gcc/rust/gource-gccrs.sh",
+        "gcc/rust/monthly-diff.py",
+    ];
+    let rev_list_to_drop = git::rev_list(&merge_base, &new_branch).dirs(do_not_upstream);
+
+    let commits_to_drop = String::from_utf8(rev_list_to_drop.spawn()?.stdout)?;
+    let commits_to_drop: BTreeSet<_> = commits_to_drop.split('\n').collect();
+
+    all_commits.retain(|rev| !commits_to_drop.contains(rev));
+
+    info!("All commits: {all_commits_count}");
+    info!(
+        "Commits to drop {}: {:?}",
+        commits_to_drop.len(),
+        commits_to_drop
+    );
+    info!(
+        "Commits to apply: {}/{all_commits_count} [-{}]{:?}",
+        all_commits.len(),
+        commits_to_drop.len(),
+        all_commits
+    );
+
+    if no_rebase {
+        info!("Not rebasing, reseting branch to merge-base {merge_base}");
+        git::switch(&new_branch)
+            .create()
+            .start_point(git::Revision(merge_base))
+            .force()
+            .spawn()?;
+    } else {
+        info!("Rebasing onto new gcc upstream, reseting branch to {gcc_upstream_branch}");
+        git::switch(&new_branch)
+            .create()
+            .start_point(git::Revision(gcc_upstream_branch))
+            .force()
+            .spawn()?;
+    }
+
+    info!("Applying commits over upstream base");
+    for commit in all_commits {
+        info!("Applying {commit}...");
+        git::cherry_pick(git::Commit(commit)).spawn()?;
+    }
+    info!("Done applying");
     Ok(())
 }

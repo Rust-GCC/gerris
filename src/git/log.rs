@@ -9,6 +9,7 @@ pub struct Log {
     branch: Option<String>,
     grep: Option<String>,
     format: Option<Format>,
+    merges: Option<bool>,
 }
 
 pub fn log() -> Log {
@@ -43,6 +44,12 @@ impl Log {
             ..self
         }
     }
+    pub fn merges<T: Into<bool>>(self, merges: T) -> Log {
+        Log {
+            merges: Some(merges.into()),
+            ..self
+        }
+    }
 }
 
 impl GitCmd for Log {
@@ -54,5 +61,12 @@ impl GitCmd for Log {
         self.format
             .map(|f| cmd.arg(format!("--format={}", f.as_str())));
         self.branch.map(|b| cmd.arg(b));
+        self.merges.map(|b| {
+            if b {
+                cmd.arg("--merges")
+            } else {
+                cmd.arg("--no-merges")
+            }
+        });
     }
 }
