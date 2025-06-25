@@ -88,12 +88,14 @@ use crate::git::{self, GitCmd};
 
 pub struct UpstreamOpt {
     pub token: Option<String>,
+    pub github_project_owner: Option<String>,
     pub no_fetch: bool,
     pub no_rebase: bool,
     pub new_branch: String,
     pub gcc_upstream_branch: String,
     pub gccrs_dev_branch: String,
     pub gccrs: PathBuf,
+    pub push_to: Option<String>,
     pub ssh: PathBuf,
 }
 
@@ -133,12 +135,14 @@ impl Display for Error {
 pub async fn prepare_commits(
     UpstreamOpt {
         token,
+        github_project_owner: _gh,
         no_fetch,
         no_rebase,
         new_branch,
         gcc_upstream_branch,
         gccrs_dev_branch,
         gccrs,
+        push_to: _push_to,
         ssh: _ssh, // FIXME: Use ssh key for pushing
     }: UpstreamOpt,
 ) -> Result<(), Error> {
@@ -245,12 +249,14 @@ pub async fn prepare_commits(
 pub async fn prepare_commits_bis(
     UpstreamOpt {
         token,
+        github_project_owner,
         no_fetch,
         no_rebase,
         new_branch,
         gcc_upstream_branch,
         gccrs_dev_branch,
         gccrs,
+        push_to,
         ssh: _ssh, // FIXME: Use ssh key for pushing
     }: UpstreamOpt,
 ) -> Result<(), Error> {
@@ -354,5 +360,39 @@ pub async fn prepare_commits_bis(
         git::cherry_pick(git::Commit(commit)).spawn()?;
     }
     info!("Done applying");
+
+    if let Some(remote_for_push) = push_to {
+        info!("Pushing branch to {remote_for_push} {new_branch}");
+        git::push()
+            .remote(remote_for_push)
+            .force()
+            .refspec(format!("HEAD:{new_branch}"))
+            .spawn()?;
+    }
+    if let Some(token) = token {
+        info!("creating pull-request...");
+        let gh_owner = github_project_owner.expect("Missing github project owner for pull-request creation");
+
+        let instance = OctocrabBuilder::new()
+            .personal_token(token)
+            .build()
+            .unwrap();
+
+        info!("head: {new_branch}, base: {gccrs_dev_branch}");
+
+        instance
+            .pulls(gh_owner, "gccrs")
+            .create(
+                format!("Commits to upstream: {}", Local::now().date_naive()),
+                &new_branch,
+                &gccrs_dev_branch,
+            )
+            .body("Hey there! I'm gerris 🦀")
+            .maintainer_can_modify(true)
+            .send()
+            .await
+            .unwrap();
+    }
+
     Ok(())
 }

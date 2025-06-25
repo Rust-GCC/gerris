@@ -66,6 +66,9 @@ enum SubCmd {
         #[arg(short, long, help = "GitHub token to perform actions as gerris")]
         token: Option<String>,
 
+        #[arg(short, long, help = "GitHub project owner")]
+        github_project_owner: Option<String>,
+
         #[arg(
             long,
             help = "Branch on which to base the pull-request gerris will create"
@@ -94,6 +97,9 @@ enum SubCmd {
             help = "Work directory which contains a copy of the gccrs respository"
         )]
         work: PathBuf,
+
+        #[arg(short, long, help = "Push the branch to the specified remote")]
+        push: Option<String>,
 
         #[arg(short, long, help = "ssh key to use when pushing created branches")]
         ssh: PathBuf,
@@ -140,22 +146,26 @@ async fn main() -> anyhow::Result<()> {
 
         SubCmd::Upstream {
             token,
+            github_project_owner,
             no_fetch,
             no_rebase,
             to,
             gcc_upstream_branch,
             gccrs_dev_branch,
             work,
+            push,
             ssh,
         } => {
             upstream::prepare_commits_bis(upstream::UpstreamOpt {
                 token,
+                github_project_owner,
                 no_fetch,
                 no_rebase,
                 new_branch: to,
                 gcc_upstream_branch,
                 gccrs_dev_branch,
                 gccrs: work,
+                push_to: push,
                 ssh,
             })
             .await?
