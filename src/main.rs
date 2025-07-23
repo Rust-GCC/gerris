@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use chrono::Local;
 use clap::{Parser, Subcommand};
 
 // FIXME: Add env_logger, would fit quite nicely here
@@ -25,7 +26,7 @@ enum SubCmd {
         #[arg(short, long, help = "GitHub token to perform actions as gerris")]
         token: Option<String>,
 
-        #[arg(short, long, help = "GitHub project owner")]
+        #[arg(short, long, help = "GitHub project owner", default_value = "Rust-GCC")]
         github_project_owner: Option<String>,
 
         #[arg(long, help = "GCC upstream branch", default_value = "gnu/trunk")]
@@ -50,8 +51,11 @@ enum SubCmd {
         #[arg(long, help = "autosquash fixup commits")]
         autosquash: bool,
 
-        #[arg(long, help = "New branch gerris will create for the new pull-request")]
-        to: String,
+        #[arg(
+            long,
+            help = "Force branch name that gerris will create for the new pull-request (uses today's date by default)"
+        )]
+        to: Option<String>,
 
         #[arg(short, long, help = "Push the branch to the specified remote")]
         push: Option<String>,
@@ -72,14 +76,14 @@ enum SubCmd {
         #[arg(short, long, help = "GitHub token to perform actions as gerris")]
         token: Option<String>,
 
-        #[arg(short, long, help = "GitHub project owner")]
+        #[arg(short, long, help = "GitHub project owner", default_value = "Rust-GCC")]
         github_project_owner: Option<String>,
 
         #[arg(
             long,
-            help = "Branch on which to base the pull-request gerris will create"
+            help = "Force branch name that gerris will create for the new pull-request (uses today's date by default)"
         )]
-        to: String,
+        to: Option<String>,
 
         #[arg(long, help = "Do not update remotes")]
         no_fetch: bool,
@@ -118,6 +122,10 @@ struct Args {
     cmd: SubCmd,
 }
 
+fn create_new_branch_name(topic: &str) -> String {
+    format!("gerris/{topic}/{}", Local::now())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
@@ -146,7 +154,7 @@ async fn main() -> anyhow::Result<()> {
                 no_fetch,
                 gcc_upstream_branch,
                 gccrs_dev_branch,
-                new_branch,
+                new_branch: new_branch.map_or(create_new_branch_name("rebase"), |s| s),
                 gccrs: work,
                 push_to: push,
                 ssh,
@@ -159,7 +167,7 @@ async fn main() -> anyhow::Result<()> {
             github_project_owner,
             no_fetch,
             no_rebase,
-            to,
+            to: new_branch,
             gcc_upstream_branch,
             gccrs_dev_branch,
             work,
@@ -171,7 +179,7 @@ async fn main() -> anyhow::Result<()> {
                 github_project_owner,
                 no_fetch,
                 no_rebase,
-                new_branch: to,
+                new_branch: new_branch.map_or(create_new_branch_name("upstream"), |s| s),
                 gcc_upstream_branch,
                 gccrs_dev_branch,
                 gccrs: work,
