@@ -53,13 +53,15 @@ impl fmt::Display for Error {
 #[derive(Clone, Copy)]
 pub enum Format {
     Hash,
+    ShortHash,
     Title,
 }
 
 impl Format {
     fn as_str(&self) -> &str {
         match self {
-            Format::Hash => "%h",
+            Format::Hash => "%H",
+            Format::ShortHash => "%h",
             Format::Title => "%s",
         }
     }
