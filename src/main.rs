@@ -61,10 +61,10 @@ enum SubCmd {
             long,
             help = "work directory which contains a copy of the gccrs respository"
         )]
+        work: PathBuf,
+
         #[arg(short, long, help = "ssh key to use when pushing created branches")]
         ssh: PathBuf,
-
-        work: PathBuf,
     },
     /// Create a PR on `gccrs`'s repository containing the commits from master which haven't yet
     /// been formatted properly for upstreaming.
