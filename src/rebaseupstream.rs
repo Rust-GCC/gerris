@@ -1,5 +1,7 @@
-use crate::git::{self, GitCmd};
+use crate::git::{self, split_remote_branch, GitCmd};
+use chrono::Local;
 use log::{error, info, warn};
+use octocrab::OctocrabBuilder;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io;
 use std::path::PathBuf;
@@ -8,6 +10,7 @@ use thiserror::Error;
 
 pub struct RebaseUpstreamOpt {
     pub token: Option<String>,
+    pub github_project_owner: Option<String>,
     pub autosquash: bool,
     pub linearize: bool,
     pub no_fetch: bool,
@@ -15,6 +18,7 @@ pub struct RebaseUpstreamOpt {
     pub gccrs_dev_branch: String,
     pub new_branch: String,
     pub gccrs: PathBuf,
+    pub push_to: Option<String>,
     pub ssh: PathBuf,
 }
 
@@ -35,6 +39,7 @@ impl Display for Error {
 pub async fn rebase_and_update(
     RebaseUpstreamOpt {
         token,
+        github_project_owner,
         autosquash,
         linearize,
         no_fetch,
@@ -42,6 +47,7 @@ pub async fn rebase_and_update(
         gccrs_dev_branch,
         new_branch,
         gccrs,
+        push_to,
         ssh: _ssh, // FIXME: Use ssh key for pushing
     }: RebaseUpstreamOpt,
 ) -> Result<(), Error> {
@@ -121,10 +127,74 @@ This branch has a no-op merge as the last commit:
 The merge is obtained with \"git merge --strategy=ours\" to only keep the changes from second arm."
     );
 
-    git::merge(gccrs_dev_branch)
+    git::merge(&gccrs_dev_branch)
         .strategy("ours")
         .message(merge_commit_message)
         .spawn()?;
 
+    // Maybe push the branch.
+    // ... and if pushing the branch, maybe create a Pull Request
+    if let Some(remote_for_push) = push_to {
+        info!("Pushing branch to {remote_for_push} {new_branch}");
+        git::push()
+            .remote(remote_for_push)
+            .force()
+            .refspec(format!("HEAD:{new_branch}"))
+            .spawn()?;
+
+        if let Some(token) = token {
+            info!("creating pull-request...");
+            let gh_owner = github_project_owner
+                .expect("Missing github project owner for pull-request creation");
+
+            let instance = OctocrabBuilder::new()
+                .personal_token(token)
+                .build()
+                .unwrap();
+
+            let (remote, rem_branch) =
+                if let Some((rem, br)) = split_remote_branch(&gccrs_dev_branch) {
+                    info!("Remote: {rem}, branch: {br}");
+                    (Some(rem), br)
+                } else {
+                    info!("branch spec has no remote: {gccrs_dev_branch}");
+                    (None, gccrs_dev_branch.as_str())
+                };
+
+            info!("head: {new_branch}, base: {rem_branch}");
+
+            let upstream_rev = String::from_utf8(
+                git::revparse()
+                    .revision(git::Revision(gcc_upstream_branch))
+                    .spawn()?
+                    .stdout,
+            )?;
+
+            let github_rev = String::from_utf8(
+                git::revparse()
+                    .revision(git::Revision(&gccrs_dev_branch))
+                    .spawn()?
+                    .stdout,
+            )?;
+
+            let pr_descr = format!("This is a sync with upstream GCC:\n - upstream GCC revision: {upstream_rev}\n - gccrs github: {github_rev}\n-- [gerris](https://github.com/Rust-GCC/gerris) 🦀\n");
+
+            instance
+                .pulls(gh_owner, "gccrs")
+                .create(
+                    format!(
+                        "Sync with upstream ({}): {upstream_rev}",
+                        Local::now().date_naive()
+                    ),
+                    &new_branch,
+                    rem_branch,
+                )
+                .body(pr_descr)
+                .maintainer_can_modify(true)
+                .send()
+                .await
+                .unwrap();
+        }
+    }
     Ok(())
 }

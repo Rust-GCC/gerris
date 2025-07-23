@@ -25,6 +25,9 @@ enum SubCmd {
         #[arg(short, long, help = "GitHub token to perform actions as gerris")]
         token: Option<String>,
 
+        #[arg(short, long, help = "GitHub project owner")]
+        github_project_owner: Option<String>,
+
         #[arg(long, help = "GCC upstream branch", default_value = "gnu/trunk")]
         gcc_upstream_branch: String,
 
@@ -49,6 +52,9 @@ enum SubCmd {
 
         #[arg(long, help = "New branch gerris will create for the new pull-request")]
         to: String,
+
+        #[arg(short, long, help = "Push the branch to the specified remote")]
+        push: Option<String>,
 
         #[arg(
             short,
@@ -121,6 +127,7 @@ async fn main() -> anyhow::Result<()> {
         SubCmd::ChangeLogs => clog::check_clog_checker_output()?,
         SubCmd::Rebase {
             token,
+            github_project_owner,
             gcc_upstream_branch,
             linearize,
             no_fetch,
@@ -128,10 +135,12 @@ async fn main() -> anyhow::Result<()> {
             autosquash,
             to: new_branch,
             work,
+            push,
             ssh,
         } => {
             rebaseupstream::rebase_and_update(rebaseupstream::RebaseUpstreamOpt {
                 token,
+                github_project_owner,
                 autosquash,
                 linearize,
                 no_fetch,
@@ -139,6 +148,7 @@ async fn main() -> anyhow::Result<()> {
                 gccrs_dev_branch,
                 new_branch,
                 gccrs: work,
+                push_to: push,
                 ssh,
             })
             .await?
