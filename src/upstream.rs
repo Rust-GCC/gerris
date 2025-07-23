@@ -84,7 +84,7 @@ use log::{error, info, warn};
 use octocrab::OctocrabBuilder;
 use thiserror::Error;
 
-use crate::git::{self, GitCmd};
+use crate::git::{self, split_remote_branch, GitCmd};
 
 pub struct UpstreamOpt {
     pub token: Option<String>,
@@ -371,21 +371,30 @@ pub async fn prepare_commits_bis(
     }
     if let Some(token) = token {
         info!("creating pull-request...");
-        let gh_owner = github_project_owner.expect("Missing github project owner for pull-request creation");
+        let gh_owner =
+            github_project_owner.expect("Missing github project owner for pull-request creation");
 
         let instance = OctocrabBuilder::new()
             .personal_token(token)
             .build()
             .unwrap();
 
-        info!("head: {new_branch}, base: {gccrs_dev_branch}");
+        let (remote, rem_branch) = if let Some((rem, br)) = split_remote_branch(&gccrs_dev_branch) {
+            info!("Remote: {rem}, branch: {br}");
+            (Some(rem), br)
+        } else {
+            info!("branch spec has no remote: {gccrs_dev_branch}");
+            (None, gccrs_dev_branch.as_str())
+        };
+
+        info!("head: {new_branch}, base: {rem_branch}");
 
         instance
             .pulls(gh_owner, "gccrs")
             .create(
                 format!("Commits to upstream: {}", Local::now().date_naive()),
                 &new_branch,
-                &gccrs_dev_branch,
+                rem_branch,
             )
             .body("Hey there! I'm gerris 🦀")
             .maintainer_can_modify(true)
