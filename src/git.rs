@@ -96,7 +96,7 @@ pub fn split_remote_branch(rev: &str) -> Option<(&str, &str)> {
         return None;
     }
 
-    return Some((split[0], split[1]));
+    Some((split[0], split[1]))
 }
 
 pub fn maybe_fetch_from_branch(rev: &str) -> Result<(), Error> {

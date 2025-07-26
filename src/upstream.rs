@@ -167,7 +167,7 @@ pub async fn prepare_commits(
         .spawn()?;
     let last_upstreamed_commit = String::from_utf8(last_upstreamed_commit.stdout)?;
 
-    info!("found last upstreamed commit: {}", last_upstreamed_commit);
+    info!("found last upstreamed commit: {last_upstreamed_commit}");
 
     let last_msg = last_upstreamed_commit
         .strip_prefix("gccrs: ")
@@ -184,7 +184,7 @@ pub async fn prepare_commits(
     let last_commit_us = String::from_utf8(last_commit_us.stdout)?;
     let last_commit_us = last_commit_us.trim_end();
 
-    info!("found equivalent commit: {}", last_commit_us);
+    info!("found equivalent commit: {last_commit_us}");
 
     let rev_list = git::rev_list(last_commit_us, "upstream/master")
         .no_merges()

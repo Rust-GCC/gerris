@@ -77,7 +77,7 @@ pub async fn rebase_and_update(
             .stdout,
     )?;
     let last_merge_commit = last_merge_commit.trim().to_string();
-    info!("Last merge commit is {}", last_merge_commit);
+    info!("Last merge commit is {last_merge_commit}");
 
     let head_rev = String::from_utf8(
         git::revparse()
@@ -86,12 +86,12 @@ pub async fn rebase_and_update(
             .stdout,
     )?;
     let head_rev = head_rev.trim().to_string();
-    info!("Current revision of {gccrs_dev_branch}: {}", head_rev);
+    info!("Current revision of {gccrs_dev_branch}: {head_rev}");
 
     info!("Switching back to {last_merge_commit}");
     git::switch(&new_branch)
         .create()
-        .start_point(git::Revision(format!("{}^", last_merge_commit)))
+        .start_point(git::Revision(format!("{last_merge_commit}^")))
         .force()
         .spawn()?;
 
