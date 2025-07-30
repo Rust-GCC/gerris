@@ -81,6 +81,13 @@ enum SubCmd {
 
         #[arg(
             long,
+            help = "Name for the base branch to be used for the pull-request. This should be an upstream branch.",
+            default_value = "gcc-patch-dev"
+        )]
+        github_upstream_base: Option<String>,
+
+        #[arg(
+            long,
             help = "Force branch name that gerris will create for the new pull-request (uses today's date by default)"
         )]
         to_branch: Option<String>,
@@ -165,6 +172,7 @@ async fn main() -> anyhow::Result<()> {
         SubCmd::Upstream {
             token,
             github_project_owner,
+            github_upstream_base,
             no_fetch,
             no_rebase,
             to_branch: new_branch,
@@ -177,6 +185,7 @@ async fn main() -> anyhow::Result<()> {
             upstream::prepare_commits_bis(upstream::UpstreamOpt {
                 token,
                 github_project_owner,
+                github_upstream_base,
                 no_fetch,
                 no_rebase,
                 new_branch: new_branch.map_or(create_new_branch_name("upstream"), |s| s),
