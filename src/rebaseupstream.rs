@@ -18,7 +18,7 @@ pub struct RebaseUpstreamOpt {
     pub gccrs_dev_branch: String,
     pub new_branch: String,
     pub gccrs: PathBuf,
-    pub push_to: Option<String>,
+    pub remote: Option<String>,
     pub ssh: PathBuf,
 }
 
@@ -47,7 +47,7 @@ pub async fn rebase_and_update(
         gccrs_dev_branch,
         new_branch,
         gccrs,
-        push_to,
+        remote,
         ssh: _ssh, // FIXME: Use ssh key for pushing
     }: RebaseUpstreamOpt,
 ) -> Result<(), Error> {
@@ -134,7 +134,7 @@ The merge is obtained with \"git merge --strategy=ours\" to only keep the change
 
     // Maybe push the branch.
     // ... and if pushing the branch, maybe create a Pull Request
-    if let Some(remote_for_push) = push_to {
+    if let Some(remote_for_push) = remote {
         info!("Pushing branch to {remote_for_push} {new_branch}");
         git::push()
             .remote(remote_for_push)
@@ -152,7 +152,7 @@ The merge is obtained with \"git merge --strategy=ours\" to only keep the change
                 .build()
                 .unwrap();
 
-            let (remote, rem_branch) =
+            let (_, rem_branch) =
                 if let Some((rem, br)) = split_remote_branch(&gccrs_dev_branch) {
                     info!("Remote: {rem}, branch: {br}");
                     (Some(rem), br)

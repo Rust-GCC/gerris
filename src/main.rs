@@ -55,10 +55,10 @@ enum SubCmd {
             long,
             help = "Force branch name that gerris will create for the new pull-request (uses today's date by default)"
         )]
-        to: Option<String>,
+        to_branch: Option<String>,
 
         #[arg(short, long, help = "Push the branch to the specified remote")]
-        push: Option<String>,
+        remote: Option<String>,
 
         #[arg(
             short,
@@ -83,7 +83,7 @@ enum SubCmd {
             long,
             help = "Force branch name that gerris will create for the new pull-request (uses today's date by default)"
         )]
-        to: Option<String>,
+        to_branch: Option<String>,
 
         #[arg(long, help = "Do not update remotes")]
         no_fetch: bool,
@@ -109,7 +109,7 @@ enum SubCmd {
         work: PathBuf,
 
         #[arg(short, long, help = "Push the branch to the specified remote")]
-        push: Option<String>,
+        remote: Option<String>,
 
         #[arg(short, long, help = "ssh key to use when pushing created branches")]
         ssh: PathBuf,
@@ -141,9 +141,9 @@ async fn main() -> anyhow::Result<()> {
             no_fetch,
             gccrs_dev_branch,
             autosquash,
-            to: new_branch,
+            to_branch: new_branch,
             work,
-            push,
+            remote,
             ssh,
         } => {
             rebaseupstream::rebase_and_update(rebaseupstream::RebaseUpstreamOpt {
@@ -156,7 +156,7 @@ async fn main() -> anyhow::Result<()> {
                 gccrs_dev_branch,
                 new_branch: new_branch.map_or(create_new_branch_name("rebase"), |s| s),
                 gccrs: work,
-                push_to: push,
+                remote,
                 ssh,
             })
             .await?
@@ -167,11 +167,11 @@ async fn main() -> anyhow::Result<()> {
             github_project_owner,
             no_fetch,
             no_rebase,
-            to: new_branch,
+            to_branch: new_branch,
             gcc_upstream_branch,
             gccrs_dev_branch,
             work,
-            push,
+            remote,
             ssh,
         } => {
             upstream::prepare_commits_bis(upstream::UpstreamOpt {
@@ -183,7 +183,7 @@ async fn main() -> anyhow::Result<()> {
                 gcc_upstream_branch,
                 gccrs_dev_branch,
                 gccrs: work,
-                push_to: push,
+                remote,
                 ssh,
             })
             .await?

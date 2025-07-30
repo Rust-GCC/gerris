@@ -95,7 +95,7 @@ pub struct UpstreamOpt {
     pub gcc_upstream_branch: String,
     pub gccrs_dev_branch: String,
     pub gccrs: PathBuf,
-    pub push_to: Option<String>,
+    pub remote: Option<String>,
     pub ssh: PathBuf,
 }
 
@@ -142,7 +142,7 @@ pub async fn prepare_commits(
         gcc_upstream_branch,
         gccrs_dev_branch,
         gccrs,
-        push_to: _push_to,
+        remote: _remote,
         ssh: _ssh, // FIXME: Use ssh key for pushing
     }: UpstreamOpt,
 ) -> Result<(), Error> {
@@ -256,7 +256,7 @@ pub async fn prepare_commits_bis(
         gcc_upstream_branch,
         gccrs_dev_branch,
         gccrs,
-        push_to,
+        remote,
         ssh: _ssh, // FIXME: Use ssh key for pushing
     }: UpstreamOpt,
 ) -> Result<(), Error> {
@@ -361,7 +361,7 @@ pub async fn prepare_commits_bis(
     }
     info!("Done applying");
 
-    if let Some(remote_for_push) = push_to {
+    if let Some(remote_for_push) = remote {
         info!("Pushing branch to {remote_for_push} {new_branch}");
         git::push()
             .remote(remote_for_push)
@@ -379,7 +379,7 @@ pub async fn prepare_commits_bis(
             .build()
             .unwrap();
 
-        let (remote, rem_branch) = if let Some((rem, br)) = split_remote_branch(&gccrs_dev_branch) {
+        let (_, rem_branch) = if let Some((rem, br)) = split_remote_branch(&gccrs_dev_branch) {
             info!("Remote: {rem}, branch: {br}");
             (Some(rem), br)
         } else {
