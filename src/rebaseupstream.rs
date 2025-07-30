@@ -12,7 +12,7 @@ pub struct RebaseUpstreamOpt {
     pub token: Option<String>,
     pub github_project_owner: Option<String>,
     pub autosquash: bool,
-    pub linearize: bool,
+    pub linearize_only: bool,
     pub no_fetch: bool,
     pub gcc_upstream_branch: String,
     pub gccrs_dev_branch: String,
@@ -41,7 +41,7 @@ pub async fn rebase_and_update(
         token,
         github_project_owner,
         autosquash,
-        linearize,
+        linearize_only,
         no_fetch,
         gcc_upstream_branch,
         gccrs_dev_branch,
@@ -88,7 +88,7 @@ pub async fn rebase_and_update(
     let head_rev = head_rev.trim().to_string();
     info!("Current revision of {gccrs_dev_branch}: {head_rev}");
 
-    info!("Switching back to {last_merge_commit}");
+    info!("Switching back to parent of {last_merge_commit}");
     git::switch(&new_branch)
         .create()
         .start_point(git::Revision(format!("{last_merge_commit}^")))
@@ -101,7 +101,9 @@ pub async fn rebase_and_update(
         git::cherry_pick(git::Commit(format!("{last_merge_commit}..{head_rev}"))).spawn()?;
     }
 
-    if !linearize {
+    if linearize_only {
+        info!("Not rebasing.");
+    } else {
         let mut rebase_cmd = git::rebase(&gcc_upstream_branch);
 
         if autosquash {
@@ -111,8 +113,6 @@ pub async fn rebase_and_update(
 
         info!("Rebasing the sequence onto {gcc_upstream_branch}");
         rebase_cmd.spawn()?;
-    } else {
-        info!("Not rebasing.");
     }
 
     info!("Creating new merge commit");
@@ -152,14 +152,13 @@ The merge is obtained with \"git merge --strategy=ours\" to only keep the change
                 .build()
                 .unwrap();
 
-            let (_, rem_branch) =
-                if let Some((rem, br)) = split_remote_branch(&gccrs_dev_branch) {
-                    info!("Remote: {rem}, branch: {br}");
-                    (Some(rem), br)
-                } else {
-                    info!("branch spec has no remote: {gccrs_dev_branch}");
-                    (None, gccrs_dev_branch.as_str())
-                };
+            let (_, rem_branch) = if let Some((rem, br)) = split_remote_branch(&gccrs_dev_branch) {
+                info!("Remote: {rem}, branch: {br}");
+                (Some(rem), br)
+            } else {
+                info!("branch spec has no remote: {gccrs_dev_branch}");
+                (None, gccrs_dev_branch.as_str())
+            };
 
             info!("head: {new_branch}, base: {rem_branch}");
 

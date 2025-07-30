@@ -26,7 +26,7 @@ enum SubCmd {
         #[arg(short, long, help = "GitHub token to perform actions as gerris")]
         token: Option<String>,
 
-        #[arg(short, long, help = "GitHub project owner", default_value = "Rust-GCC")]
+        #[arg(long, help = "GitHub project owner", default_value = "Rust-GCC")]
         github_project_owner: Option<String>,
 
         #[arg(long, help = "GCC upstream branch", default_value = "gnu/trunk")]
@@ -39,7 +39,7 @@ enum SubCmd {
             long,
             help = "Only linearize commit sequence, do not rebase over updated upstream"
         )]
-        linearize: bool,
+        linearize_only: bool,
 
         #[arg(
             long,
@@ -76,7 +76,7 @@ enum SubCmd {
         #[arg(short, long, help = "GitHub token to perform actions as gerris")]
         token: Option<String>,
 
-        #[arg(short, long, help = "GitHub project owner", default_value = "Rust-GCC")]
+        #[arg(long, help = "GitHub project owner", default_value = "Rust-GCC")]
         github_project_owner: Option<String>,
 
         #[arg(
@@ -137,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
             token,
             github_project_owner,
             gcc_upstream_branch,
-            linearize,
+            linearize_only,
             no_fetch,
             gccrs_dev_branch,
             autosquash,
@@ -150,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
                 token,
                 github_project_owner,
                 autosquash,
-                linearize,
+                linearize_only,
                 no_fetch,
                 gcc_upstream_branch,
                 gccrs_dev_branch,
