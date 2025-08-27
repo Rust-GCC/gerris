@@ -130,7 +130,7 @@ struct Args {
 }
 
 fn create_new_branch_name(topic: &str) -> String {
-    format!("gerris/{topic}/{}", Local::now())
+    format!("gerris/{topic}/{}", Local::now().date_naive())
 }
 
 #[tokio::main]
