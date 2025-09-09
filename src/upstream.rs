@@ -386,7 +386,7 @@ pub async fn prepare_commits_bis(
             git::push()
                 .remote(remote_for_push)
                 .force()
-                .refspec(format!("{gcc_upstream_branch}:{github_upstream_base}"))
+                .refspec(format!("{gcc_upstream_branch}:refs/heads/{github_upstream_base}"))
                 .spawn()?;
         }
 
