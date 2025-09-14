@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::fs;
 
 use chrono::Local;
 use clap::{Parser, Subcommand};
@@ -23,8 +24,12 @@ enum SubCmd {
     /// commits following the latest merge within the existing sequence located
     /// before the merge.
     Rebase {
-        #[arg(short, long, help = "GitHub token to perform actions as gerris")]
-        token: Option<String>,
+        #[arg(
+            short,
+            long,
+            help = "Path to file containing the GitHub token to perform actions as gerris"
+        )]
+        token_file: Option<String>,
 
         #[arg(long, help = "GitHub project owner", default_value = "Rust-GCC")]
         github_project_owner: Option<String>,
@@ -70,8 +75,12 @@ enum SubCmd {
     /// Create a PR on `gccrs`'s repository containing the commits from master which haven't yet
     /// been formatted properly for upstreaming.
     Upstream {
-        #[arg(short, long, help = "GitHub token to perform actions as gerris")]
-        token: Option<String>,
+        #[arg(
+            short,
+            long,
+            help = "Path to file containing the GitHub token to perform actions as gerris"
+        )]
+        token_file: Option<String>,
 
         #[arg(long, help = "GitHub project owner", default_value = "Rust-GCC")]
         github_project_owner: Option<String>,
@@ -135,7 +144,7 @@ async fn main() -> anyhow::Result<()> {
     match args.cmd {
         SubCmd::ChangeLogs => clog::check_clog_checker_output()?,
         SubCmd::Rebase {
-            token,
+            token_file,
             github_project_owner,
             gcc_upstream_branch,
             linearize_only,
@@ -146,6 +155,12 @@ async fn main() -> anyhow::Result<()> {
             work,
             remote,
         } => {
+            let token = if let Some(tf) = token_file {
+                Some(fs::read_to_string(&tf)?.trim().to_string())
+            } else {
+                None
+            };
+
             rebaseupstream::rebase_and_update(rebaseupstream::RebaseUpstreamOpt {
                 token,
                 github_project_owner,
@@ -162,7 +177,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         SubCmd::Upstream {
-            token,
+            token_file,
             github_project_owner,
             github_upstream_base,
             no_fetch,
@@ -173,6 +188,12 @@ async fn main() -> anyhow::Result<()> {
             work,
             remote,
         } => {
+            let token = if let Some(tf) = token_file {
+                Some(fs::read_to_string(&tf)?.trim().to_string())
+            } else {
+                None
+            };
+
             upstream::prepare_commits_bis(upstream::UpstreamOpt {
                 token,
                 github_project_owner,
