@@ -1,4 +1,4 @@
-use super::{Branch, Format, GitCmd, Revision};
+use super::{GitCmd, Revision};
 
 use std::process::Command;
 

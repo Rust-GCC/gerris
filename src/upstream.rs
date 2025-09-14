@@ -84,7 +84,7 @@ use log::{error, info, warn};
 use octocrab::OctocrabBuilder;
 use thiserror::Error;
 
-use crate::git::{self, split_remote_branch, GitCmd};
+use crate::git::{self, GitCmd};
 
 pub struct UpstreamOpt {
     pub token: Option<String>,
@@ -138,8 +138,8 @@ pub async fn prepare_commits(
         github_project_owner: _gh,
         github_upstream_base: _,
         no_fetch,
-        no_rebase,
-        new_branch,
+        no_rebase: _,
+        new_branch: _,
         gcc_upstream_branch,
         gccrs_dev_branch,
         gccrs,
@@ -383,7 +383,9 @@ pub async fn prepare_commits_bis(
             git::push()
                 .remote(remote_for_push)
                 .force()
-                .refspec(format!("{gcc_upstream_branch}:refs/heads/{github_upstream_base}"))
+                .refspec(format!(
+                    "{gcc_upstream_branch}:refs/heads/{github_upstream_base}"
+                ))
                 .spawn()?;
         }
 

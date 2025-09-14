@@ -1,6 +1,6 @@
 use crate::git::{self, split_remote_branch, GitCmd};
 use chrono::Local;
-use log::{error, info, warn};
+use log::info;
 use octocrab::OctocrabBuilder;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io;

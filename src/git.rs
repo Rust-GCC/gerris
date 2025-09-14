@@ -1,8 +1,5 @@
-use std::collections::HashMap;
-use std::ffi::OsStr;
-
 extern crate log as ext_log;
-use ext_log::{error, info, warn};
+use ext_log::info;
 
 use std::process::{self, Command, Stdio};
 use std::{fmt, io};
@@ -100,7 +97,7 @@ pub fn split_remote_branch(rev: &str) -> Option<(&str, &str)> {
 }
 
 pub fn maybe_fetch_from_branch(rev: &str) -> Result<(), Error> {
-    let (remote, branch) = if let Some((rem, br)) = split_remote_branch(rev) {
+    let (remote, _) = if let Some((rem, br)) = split_remote_branch(rev) {
         info!("Remote: {rem}, branch: {br}");
         (Some(rem), br)
     } else {

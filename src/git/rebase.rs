@@ -1,4 +1,4 @@
-use super::{Branch, Format, GitCmd};
+use super::GitCmd;
 use std::process::Command;
 
 // FIXME: Add a derive(Builder)
