@@ -19,7 +19,6 @@ pub struct RebaseUpstreamOpt {
     pub new_branch: String,
     pub gccrs: PathBuf,
     pub remote: Option<String>,
-    pub ssh: PathBuf,
 }
 
 #[derive(Debug, Error)]
@@ -48,7 +47,6 @@ pub async fn rebase_and_update(
         new_branch,
         gccrs,
         remote,
-        ssh: _ssh, // FIXME: Use ssh key for pushing
     }: RebaseUpstreamOpt,
 ) -> Result<(), Error> {
     std::env::set_current_dir(gccrs)?;

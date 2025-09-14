@@ -66,9 +66,6 @@ enum SubCmd {
             help = "work directory which contains a copy of the gccrs respository"
         )]
         work: PathBuf,
-
-        #[arg(short, long, help = "ssh key to use when pushing created branches")]
-        ssh: PathBuf,
     },
     /// Create a PR on `gccrs`'s repository containing the commits from master which haven't yet
     /// been formatted properly for upstreaming.
@@ -117,9 +114,6 @@ enum SubCmd {
 
         #[arg(short, long, help = "Push the branch to the specified remote")]
         remote: Option<String>,
-
-        #[arg(short, long, help = "ssh key to use when pushing created branches")]
-        ssh: PathBuf,
     },
 }
 
@@ -151,7 +145,6 @@ async fn main() -> anyhow::Result<()> {
             to_branch: new_branch,
             work,
             remote,
-            ssh,
         } => {
             rebaseupstream::rebase_and_update(rebaseupstream::RebaseUpstreamOpt {
                 token,
@@ -164,7 +157,6 @@ async fn main() -> anyhow::Result<()> {
                 new_branch: new_branch.map_or(create_new_branch_name("rebase"), |s| s),
                 gccrs: work,
                 remote,
-                ssh,
             })
             .await?
         }
@@ -180,7 +172,6 @@ async fn main() -> anyhow::Result<()> {
             gccrs_dev_branch,
             work,
             remote,
-            ssh,
         } => {
             upstream::prepare_commits_bis(upstream::UpstreamOpt {
                 token,
@@ -193,7 +184,6 @@ async fn main() -> anyhow::Result<()> {
                 gccrs_dev_branch,
                 gccrs: work,
                 remote,
-                ssh,
             })
             .await?
         }

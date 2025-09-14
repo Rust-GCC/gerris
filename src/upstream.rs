@@ -97,7 +97,6 @@ pub struct UpstreamOpt {
     pub gccrs_dev_branch: String,
     pub gccrs: PathBuf,
     pub remote: Option<String>,
-    pub ssh: PathBuf,
 }
 
 #[derive(Debug, Error)]
@@ -145,7 +144,6 @@ pub async fn prepare_commits(
         gccrs_dev_branch,
         gccrs,
         remote: _remote,
-        ssh: _ssh, // FIXME: Use ssh key for pushing
     }: UpstreamOpt,
 ) -> Result<(), Error> {
     // let _ = CdRaii::change_path(gccrs);
@@ -260,7 +258,6 @@ pub async fn prepare_commits_bis(
         gccrs_dev_branch,
         gccrs,
         remote,
-        ssh: _ssh, // FIXME: Use ssh key for pushing
     }: UpstreamOpt,
 ) -> Result<(), Error> {
     std::env::set_current_dir(gccrs)?;
