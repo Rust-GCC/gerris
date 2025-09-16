@@ -13,5 +13,7 @@ env_logger = "0.10.0"
 git2 = "0.18.1"
 log = "0.4.20"
 octocrab = "0.33"
+serde = { version = "1.0.224", features = ["derive"] }
 thiserror = "1.0.40"
 tokio = { version = "1.33.0", features = ["full"] }
+toml = "0.9.6"
