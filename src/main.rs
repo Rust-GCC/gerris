@@ -31,6 +31,7 @@ struct Config {
     autosquash: Option<bool>,
     github_upstream_base: Option<String>,
     no_rebase: Option<bool>,
+    add_missing_prefix: Option<bool>,
 }
 
 impl Config {
@@ -48,6 +49,7 @@ impl Config {
             autosquash: None,
             github_upstream_base: None,
             no_rebase: None,
+            add_missing_prefix: None,
         }
     }
 
@@ -63,6 +65,7 @@ impl Config {
         gccrs_dev_branch: Option<String>,
         gccrs: Option<PathBuf>,
         remote: Option<String>,
+        add_missing_prefix: u8,
     ) -> Result<upstream::UpstreamOpt, Error> {
         let token = if let Some(tf) = token_file {
             Some(fs::read_to_string(&tf)?.trim().to_string())
@@ -91,6 +94,8 @@ impl Config {
                 .unwrap(),
             gccrs: gccrs.or(self.work.take().map(PathBuf::from)).unwrap(),
             remote: remote.or(self.remote.take()),
+            add_missing_prefix: add_missing_prefix > 0
+                || self.add_missing_prefix.map_or(false, |v| v),
         })
     }
 
@@ -241,6 +246,9 @@ enum SubCmd {
 
         #[arg(short, long, help = "Push the branch to the specified remote")]
         remote: Option<String>,
+
+        #[arg(long, help = "Add missing 'gccrs: ' prefix to commit when missing", action = clap::ArgAction::Count)]
+        add_missing_prefix: u8,
     },
 }
 
@@ -310,6 +318,7 @@ async fn main() -> anyhow::Result<()> {
             gccrs_dev_branch,
             work,
             remote,
+            add_missing_prefix,
         } => {
             let token = if let Some(tf) = token_file {
                 Some(fs::read_to_string(&tf)?.trim().to_string())
@@ -328,6 +337,7 @@ async fn main() -> anyhow::Result<()> {
                 gccrs_dev_branch,
                 work,
                 remote,
+                add_missing_prefix,
             )?;
 
             upstream::prepare_commits_bis(sconf).await?

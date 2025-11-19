@@ -97,6 +97,7 @@ pub struct UpstreamOpt {
     pub gccrs_dev_branch: String,
     pub gccrs: PathBuf,
     pub remote: Option<String>,
+    pub add_missing_prefix: bool,
 }
 
 #[derive(Debug, Error)]
@@ -144,6 +145,7 @@ pub async fn prepare_commits(
         gccrs_dev_branch,
         gccrs,
         remote: _remote,
+        add_missing_prefix: _,
     }: UpstreamOpt,
 ) -> Result<(), Error> {
     // let _ = CdRaii::change_path(gccrs);
@@ -258,6 +260,7 @@ pub async fn prepare_commits_bis(
         gccrs_dev_branch,
         gccrs,
         remote,
+        add_missing_prefix,
     }: UpstreamOpt,
 ) -> Result<(), Error> {
     std::env::set_current_dir(gccrs)?;
@@ -360,6 +363,13 @@ pub async fn prepare_commits_bis(
         git::cherry_pick(git::Commit(commit)).spawn()?;
     }
     info!("Done applying");
+
+    if add_missing_prefix {
+        info!("Add missing 'gccrs:' prefix");
+        let mut rebase_cmd = git::rebase(&gcc_upstream_branch)
+            .add_missing_prefix()
+            .spawn()?;
+    }
 
     if let Some(remote_for_push) = &remote {
         info!("Pushing branch to {remote_for_push} {new_branch}");
