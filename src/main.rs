@@ -82,7 +82,7 @@ impl Config {
             no_rebase: no_rebase > 0 || self.no_rebase.map_or(false, |v| v),
             new_branch: new_branch
                 .or(self.to_branch.take())
-                .or(Some(create_new_branch_name("rebase")))
+                .or(Some(create_new_branch_name("rebase-upstream")))
                 .unwrap(),
             gcc_upstream_branch: gcc_upstream_branch
                 .or(self.gcc_upstream_branch.take())
