@@ -48,8 +48,10 @@ impl GitCmd for Rebase {
         }
 
         if self.add_missing_prefix {
-            cmd.arg("-c").arg("core.editor=sed -i '1{/^gccrs: /!s/^/gccrs: /}'");
-            cmd.arg("-c").arg("sequence.editor=sed -i -e 's/pick/reword/g'");
+            cmd.arg("-c")
+                .arg("core.editor=sed -i '1{/^gccrs: /!s/^/gccrs: /}'");
+            cmd.arg("-c")
+                .arg("sequence.editor=sed -i -e 's/pick/reword/g'");
         }
 
         cmd.arg("rebase");

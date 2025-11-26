@@ -1,4 +1,4 @@
-use crate::git::{self, split_remote_branch, GitCmd};
+use crate::git::{self, GitCmd, split_remote_branch};
 use chrono::Local;
 use log::info;
 use octocrab::OctocrabBuilder;
@@ -182,7 +182,9 @@ The merge is obtained with \"git merge --strategy=ours\" to only keep the change
                     .stdout,
             )?;
 
-            let pr_descr = format!("This is a sync with upstream GCC:\n - upstream GCC revision: {upstream_rev}\n - gccrs github: {github_rev}\n-- [gerris](https://github.com/Rust-GCC/gerris) 🦀\n");
+            let pr_descr = format!(
+                "This is a sync with upstream GCC:\n - upstream GCC revision: {upstream_rev}\n - gccrs github: {github_rev}\n-- [gerris](https://github.com/Rust-GCC/gerris) 🦀\n"
+            );
 
             instance
                 .pulls(gh_owner, "gccrs")

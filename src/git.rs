@@ -20,7 +20,7 @@ mod revparse;
 mod show;
 mod switch;
 
-pub use branch::{branch, StartingPoint};
+pub use branch::{StartingPoint, branch};
 pub use cherry_pick::cherry_pick;
 pub use fetch::fetch;
 pub use log::log;

@@ -76,7 +76,7 @@ impl Config {
         let token = if let Some(tf) = token_file {
             Some(fs::read_to_string(&tf)?.trim().to_string())
         } else if let Some(tf) = &self.token_file {
-            Some(fs::read_to_string(&tf)?.trim().to_string())
+            Some(fs::read_to_string(tf)?.trim().to_string())
         } else {
             None
         };
@@ -84,22 +84,19 @@ impl Config {
             token,
             github_project_owner: github_project_owner.or(self.github_project_owner.take()),
             github_upstream_base: github_upstream_base.or(self.github_upstream_base.take()),
-            no_fetch: no_fetch > 0 || self.no_fetch.map_or(false, |v| v),
-            no_push: no_push > 0 || self.no_push.map_or(false, |v| v),
-            no_pull_request: no_pull_request > 0 || self.no_pull_request.map_or(false, |v| v),
-            no_rebase: no_rebase > 0 || self.no_rebase.map_or(false, |v| v),
+            no_fetch: no_fetch > 0 || self.no_fetch.is_some_and(|v| v),
+            no_push: no_push > 0 || self.no_push.is_some_and(|v| v),
+            no_pull_request: no_pull_request > 0 || self.no_pull_request.is_some_and(|v| v),
+            no_rebase: no_rebase > 0 || self.no_rebase.is_some_and(|v| v),
             new_branch: new_branch
                 .or(self.to_branch.take())
-                .or(Some(create_new_branch_name("rebase-upstream")))
-                .unwrap(),
+                .unwrap_or(create_new_branch_name("rebase-upstream")),
             gcc_upstream_branch: gcc_upstream_branch
                 .or(self.gcc_upstream_branch.take())
-                .or(Some("gnu/trunk".to_string()))
-                .unwrap(),
+                .unwrap_or("gnu/trunk".to_string()),
             gccrs_dev_branch: gccrs_dev_branch
                 .or(self.gccrs_dev_branch.take())
-                .or(Some("upstream-gccrs/master".to_string()))
-                .unwrap(),
+                .unwrap_or("upstream-gccrs/master".to_string()),
             gccrs: gccrs.or(self.work.take().map(PathBuf::from)).unwrap(),
             remote: remote.or(self.remote.take()),
             add_missing_prefix: add_missing_prefix > 0
@@ -132,25 +129,22 @@ impl Config {
         println!("{:#?}", self);
 
         Ok(rebaseupstream::RebaseUpstreamOpt {
-            token: token,
+            token,
             github_project_owner: github_project_owner.or(self.github_project_owner.take()),
-            autosquash: autosquash > 0 || self.autosquash.map_or(false, |v| v),
-            linearize_only: linearize_only > 0 || self.linearize_only.map_or(false, |v| v),
-            no_fetch: no_fetch > 0 || self.no_fetch.map_or(false, |v| v),
-            no_push: no_push > 0 || self.no_push.map_or(false, |v| v),
-            no_pull_request: no_pull_request > 0 || self.no_pull_request.map_or(false, |v| v),
+            autosquash: autosquash > 0 || self.autosquash.is_some_and(|v| v),
+            linearize_only: linearize_only > 0 || self.linearize_only.is_some_and(|v| v),
+            no_fetch: no_fetch > 0 || self.no_fetch.is_some_and(|v| v),
+            no_push: no_push > 0 || self.no_push.is_some_and(|v| v),
+            no_pull_request: no_pull_request > 0 || self.no_pull_request.is_some_and(|v| v),
             gcc_upstream_branch: gcc_upstream_branch
                 .or(self.gcc_upstream_branch.take())
-                .or(Some("gnu/trunk".to_string()))
-                .unwrap(),
+                .unwrap_or("gnu/trunk".to_string()),
             gccrs_dev_branch: gccrs_dev_branch
                 .or(self.gccrs_dev_branch.take())
-                .or(Some("upstream-gccrs/master".to_string()))
-                .unwrap(),
+                .unwrap_or("upstream-gccrs/master".to_string()),
             new_branch: new_branch
                 .or(self.to_branch.take())
-                .or(Some(create_new_branch_name("rebase")))
-                .unwrap(),
+                .unwrap_or(create_new_branch_name("rebase")),
             gccrs: gccrs.or(self.work.take().map(PathBuf::from)).unwrap(),
             remote: remote.or(self.remote.take()),
         })

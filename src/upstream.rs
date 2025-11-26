@@ -372,7 +372,7 @@ pub async fn prepare_commits_bis(
 
     if add_missing_prefix {
         info!("Add missing 'gccrs:' prefix");
-        let mut rebase_cmd = git::rebase(&gcc_upstream_branch)
+        git::rebase(&gcc_upstream_branch)
             .add_missing_prefix()
             .spawn()?;
     }
