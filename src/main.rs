@@ -27,6 +27,8 @@ struct Config {
     token_file: Option<String>,
     to_branch: Option<String>,
     no_fetch: Option<bool>,
+    no_push: Option<bool>,
+    no_pull_request: Option<bool>,
     linearize_only: Option<bool>,
     autosquash: Option<bool>,
     github_upstream_base: Option<String>,
@@ -45,6 +47,8 @@ impl Config {
             token_file: None,
             to_branch: None,
             no_fetch: None,
+            no_push: None,
+            no_pull_request: None,
             linearize_only: None,
             autosquash: None,
             github_upstream_base: None,
@@ -59,6 +63,8 @@ impl Config {
         github_project_owner: Option<String>,
         github_upstream_base: Option<String>,
         no_fetch: u8,
+        no_push: u8,
+        no_pull_request: u8,
         no_rebase: u8,
         new_branch: Option<String>,
         gcc_upstream_branch: Option<String>,
@@ -79,6 +85,8 @@ impl Config {
             github_project_owner: github_project_owner.or(self.github_project_owner.take()),
             github_upstream_base: github_upstream_base.or(self.github_upstream_base.take()),
             no_fetch: no_fetch > 0 || self.no_fetch.map_or(false, |v| v),
+            no_push: no_push > 0 || self.no_push.map_or(false, |v| v),
+            no_pull_request: no_pull_request > 0 || self.no_pull_request.map_or(false, |v| v),
             no_rebase: no_rebase > 0 || self.no_rebase.map_or(false, |v| v),
             new_branch: new_branch
                 .or(self.to_branch.take())
@@ -106,6 +114,8 @@ impl Config {
         autosquash: u8,
         linearize_only: u8,
         no_fetch: u8,
+        no_push: u8,
+        no_pull_request: u8,
         gcc_upstream_branch: Option<String>,
         gccrs_dev_branch: Option<String>,
         new_branch: Option<String>,
@@ -127,6 +137,8 @@ impl Config {
             autosquash: autosquash > 0 || self.autosquash.map_or(false, |v| v),
             linearize_only: linearize_only > 0 || self.linearize_only.map_or(false, |v| v),
             no_fetch: no_fetch > 0 || self.no_fetch.map_or(false, |v| v),
+            no_push: no_push > 0 || self.no_push.map_or(false, |v| v),
+            no_pull_request: no_pull_request > 0 || self.no_pull_request.map_or(false, |v| v),
             gcc_upstream_branch: gcc_upstream_branch
                 .or(self.gcc_upstream_branch.take())
                 .or(Some("gnu/trunk".to_string()))
@@ -170,6 +182,12 @@ enum SubCmd {
 
         #[arg(long, help = "Do not update remotes", action = clap::ArgAction::Count)]
         no_fetch: u8,
+
+        #[arg(long, help = "Do not push the branch", action = clap::ArgAction::Count)]
+        no_push: u8,
+
+        #[arg(long, help = "Do not create the pull request", action = clap::ArgAction::Count)]
+        no_pull_request: u8,
 
         #[arg(
             long,
@@ -228,6 +246,12 @@ enum SubCmd {
         #[arg(long, help = "Do not update remotes", action = clap::ArgAction::Count)]
         no_fetch: u8,
 
+        #[arg(long, help = "Do not push the branch", action = clap::ArgAction::Count)]
+        no_push: u8,
+
+        #[arg(long, help = "Do not create the pull request", action = clap::ArgAction::Count)]
+        no_pull_request: u8,
+
         #[arg(long, help = "Do not rebase onto latest upstream GCC", action = clap::ArgAction::Count)]
         no_rebase: u8,
 
@@ -285,6 +309,8 @@ async fn main() -> anyhow::Result<()> {
             gcc_upstream_branch,
             linearize_only,
             no_fetch,
+            no_push,
+            no_pull_request,
             gccrs_dev_branch,
             autosquash,
             to_branch: new_branch,
@@ -297,6 +323,8 @@ async fn main() -> anyhow::Result<()> {
                 autosquash,
                 linearize_only,
                 no_fetch,
+                no_push,
+                no_pull_request,
                 gcc_upstream_branch,
                 gccrs_dev_branch,
                 new_branch,
@@ -312,6 +340,8 @@ async fn main() -> anyhow::Result<()> {
             github_project_owner,
             github_upstream_base,
             no_fetch,
+            no_push,
+            no_pull_request,
             no_rebase,
             to_branch: new_branch,
             gcc_upstream_branch,
@@ -331,6 +361,8 @@ async fn main() -> anyhow::Result<()> {
                 github_project_owner,
                 github_upstream_base,
                 no_fetch,
+                no_push,
+                no_pull_request,
                 no_rebase,
                 new_branch,
                 gcc_upstream_branch,

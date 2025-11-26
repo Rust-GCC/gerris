@@ -14,6 +14,8 @@ pub struct RebaseUpstreamOpt {
     pub autosquash: bool,
     pub linearize_only: bool,
     pub no_fetch: bool,
+    pub no_push: bool,
+    pub no_pull_request: bool,
     pub gcc_upstream_branch: String,
     pub gccrs_dev_branch: String,
     pub new_branch: String,
@@ -42,6 +44,8 @@ pub async fn rebase_and_update(
         autosquash,
         linearize_only,
         no_fetch,
+        no_push,
+        no_pull_request,
         gcc_upstream_branch,
         gccrs_dev_branch,
         new_branch,
@@ -132,7 +136,9 @@ The merge is obtained with \"git merge --strategy=ours\" to only keep the change
 
     // Maybe push the branch.
     // ... and if pushing the branch, maybe create a Pull Request
-    if let Some(remote_for_push) = remote {
+    if let Some(remote_for_push) = remote
+        && !no_push
+    {
         info!("Pushing branch to {remote_for_push} {new_branch}");
         git::push()
             .remote(remote_for_push)
@@ -140,7 +146,9 @@ The merge is obtained with \"git merge --strategy=ours\" to only keep the change
             .refspec(format!("HEAD:{new_branch}"))
             .spawn()?;
 
-        if let Some(token) = token {
+        if let Some(token) = token
+            && !no_pull_request
+        {
             info!("creating pull-request...");
             let gh_owner = github_project_owner
                 .expect("Missing github project owner for pull-request creation");

@@ -91,6 +91,8 @@ pub struct UpstreamOpt {
     pub github_project_owner: Option<String>,
     pub github_upstream_base: Option<String>,
     pub no_fetch: bool,
+    pub no_push: bool,
+    pub no_pull_request: bool,
     pub no_rebase: bool,
     pub new_branch: String,
     pub gcc_upstream_branch: String,
@@ -139,6 +141,8 @@ pub async fn prepare_commits(
         github_project_owner: _gh,
         github_upstream_base: _,
         no_fetch,
+        no_push: _,
+        no_pull_request: _,
         no_rebase: _,
         new_branch: _,
         gcc_upstream_branch,
@@ -254,6 +258,8 @@ pub async fn prepare_commits_bis(
         github_project_owner,
         github_upstream_base,
         no_fetch,
+        no_push,
+        no_pull_request,
         no_rebase,
         new_branch,
         gcc_upstream_branch,
@@ -371,63 +377,70 @@ pub async fn prepare_commits_bis(
             .spawn()?;
     }
 
-    if let Some(remote_for_push) = &remote {
+    if let Some(remote_for_push) = &remote
+        && !no_push
+    {
         info!("Pushing branch to {remote_for_push} {new_branch}");
         git::push()
             .remote(remote_for_push)
             .force()
             .refspec(format!("HEAD:{new_branch}"))
             .spawn()?;
-    }
 
-    if let Some(token) = token {
-        info!("creating pull-request...");
-        let gh_owner =
-            github_project_owner.expect("Missing github project owner for pull-request creation");
+        if let Some(token) = token
+            && !no_pull_request
+        {
+            info!("creating pull-request...");
+            let gh_owner = github_project_owner
+                .expect("Missing github project owner for pull-request creation");
 
-        let github_upstream_base =
-            github_upstream_base.expect("Missing github upstream branch name");
+            let github_upstream_base =
+                github_upstream_base.expect("Missing github upstream branch name");
 
-        if let Some(remote_for_push) = &remote {
-            info!("Pushing upstream base branch {gcc_upstream_branch} to {remote_for_push} {github_upstream_base}");
-            git::push()
-                .remote(remote_for_push)
-                .force()
-                .refspec(format!(
-                    "{gcc_upstream_branch}:refs/heads/{github_upstream_base}"
-                ))
-                .spawn()?;
+            if let Some(remote_for_push) = &remote {
+                info!(
+                    "Pushing upstream base branch {gcc_upstream_branch} to {remote_for_push} {github_upstream_base}"
+                );
+                git::push()
+                    .remote(remote_for_push)
+                    .force()
+                    .refspec(format!(
+                        "{gcc_upstream_branch}:refs/heads/{github_upstream_base}"
+                    ))
+                    .spawn()?;
+            }
+
+            let instance = OctocrabBuilder::new()
+                .personal_token(token)
+                .build()
+                .unwrap();
+
+            // let (_, rem_branch) = if let Some((rem, br)) = split_remote_branch(&gccrs_dev_branch) {
+            //     info!("Remote: {rem}, branch: {br}");
+            //     (Some(rem), br)
+            // } else {
+            //     info!("branch spec has no remote: {gccrs_dev_branch}");
+            //     (None, gccrs_dev_branch.as_str())
+            // };
+
+            info!("head: {new_branch}, base: {github_upstream_base}");
+
+            let pr_descr = format!(
+                "This is a fake PR, not meant to be merged. It tries to merge commits to upstream with an upstream base branch {github_upstream_base}.\nWe're only interested by the CI results.\n-- [gerris](https://github.com/Rust-GCC/gerris) 🦀\n"
+            );
+            instance
+                .pulls(gh_owner, "gccrs")
+                .create(
+                    format!("Fake PR to test the upstreaming of commit up to {new_branch}"),
+                    &new_branch,
+                    github_upstream_base,
+                )
+                .body(pr_descr)
+                .maintainer_can_modify(true)
+                .send()
+                .await
+                .unwrap();
         }
-
-        let instance = OctocrabBuilder::new()
-            .personal_token(token)
-            .build()
-            .unwrap();
-
-        // let (_, rem_branch) = if let Some((rem, br)) = split_remote_branch(&gccrs_dev_branch) {
-        //     info!("Remote: {rem}, branch: {br}");
-        //     (Some(rem), br)
-        // } else {
-        //     info!("branch spec has no remote: {gccrs_dev_branch}");
-        //     (None, gccrs_dev_branch.as_str())
-        // };
-
-        info!("head: {new_branch}, base: {github_upstream_base}");
-
-        let pr_descr = format!("This is a fake PR, not meant to be merged. It tries to merge commits to upstream with an upstream base branch {github_upstream_base}.\nWe're only interested by the CI results.\n-- [gerris](https://github.com/Rust-GCC/gerris) 🦀\n");
-        instance
-            .pulls(gh_owner, "gccrs")
-            .create(
-                format!("Fake PR to test the upstreaming of commit up to {new_branch}"),
-                &new_branch,
-                github_upstream_base,
-            )
-            .body(pr_descr)
-            .maintainer_can_modify(true)
-            .send()
-            .await
-            .unwrap();
     }
-
     Ok(())
 }
