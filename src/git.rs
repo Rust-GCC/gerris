@@ -7,8 +7,10 @@ use std::{fmt, io};
 use thiserror::Error;
 
 // TODO: Mark all subcommands types as must use
+mod add;
 mod branch;
 mod cherry_pick;
+mod commit;
 mod fetch;
 mod log;
 mod merge;
@@ -20,8 +22,10 @@ mod revparse;
 mod show;
 mod switch;
 
+pub use add::add;
 pub use branch::{StartingPoint, branch};
 pub use cherry_pick::cherry_pick;
+pub use commit::commit;
 pub use fetch::fetch;
 pub use log::log;
 pub use merge::merge;

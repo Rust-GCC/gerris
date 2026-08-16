@@ -76,8 +76,10 @@
 use std::collections::BTreeSet;
 use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::io;
-use std::path::PathBuf;
 use std::string;
+
+use std::fs;
+use std::path::PathBuf;
 
 use chrono::Local;
 use log::{error, info, warn};
@@ -85,6 +87,9 @@ use octocrab::OctocrabBuilder;
 use thiserror::Error;
 
 use crate::git::{self, GitCmd};
+
+const BUILD_CI_TEMPLATE: &str = include_str!("../templates/build.yaml");
+const ACTION_CI_BUILD_GCC: &str = include_str!("../templates/action.yml");
 
 pub struct UpstreamOpt {
     pub token: Option<String>,
@@ -100,6 +105,7 @@ pub struct UpstreamOpt {
     pub gccrs: PathBuf,
     pub remote: Option<String>,
     pub add_missing_prefix: bool,
+    pub no_extra_ci_branch: bool,
 }
 
 #[derive(Debug, Error)]
@@ -150,6 +156,7 @@ pub async fn prepare_commits(
         gccrs,
         remote: _remote,
         add_missing_prefix: _,
+        no_extra_ci_branch: _,
     }: UpstreamOpt,
 ) -> Result<(), Error> {
     // let _ = CdRaii::change_path(gccrs);
@@ -267,9 +274,14 @@ pub async fn prepare_commits_bis(
         gccrs,
         remote,
         add_missing_prefix,
+        no_extra_ci_branch,
     }: UpstreamOpt,
 ) -> Result<(), Error> {
-    std::env::set_current_dir(gccrs)?;
+    std::env::set_current_dir(&gccrs)?;
+
+    let new_branch_for_ci = format!("{new_branch}-for-ci");
+
+    let create_extra_ci_branch = !no_extra_ci_branch;
 
     if !no_fetch {
         info!("fetching `gccrs`...");
@@ -296,6 +308,22 @@ pub async fn prepare_commits_bis(
     } else {
         info!("Last commit is a merge, continuing.");
     }
+
+    info!("Cleaning the tree of github stuff");
+
+    match fs::remove_file(".github/workflows/build.yaml") {
+        Ok(_) => info!("Removed: .github/workflows/build.yaml."),
+        Err(_) => info!(
+            "Not removed (because of error or already not present): .github/workflows/build.yaml"
+        ),
+    };
+
+    match fs::remove_file(".github/actions/build-gcc/action.yml") {
+        Ok(_) => info!("Removed: .github/actions/build-gcc/action.yml."),
+        Err(_) => info!(
+            "Not removed (because of error or already not present): .github/actions/build-gcc/action.yml"
+        ),
+    };
 
     info!("Switch to new branch, starting from revision {gccrs_dev_branch}^");
     git::switch(&new_branch)
@@ -377,6 +405,38 @@ pub async fn prepare_commits_bis(
             .spawn()?;
     }
 
+    // We need to create an extra commit for CI only.
+    if create_extra_ci_branch {
+        info!("Creating 2 branches with one for CI only");
+
+        let github_upstream_base = &github_upstream_base
+            .as_ref()
+            .expect("Missing github upstream branch name");
+
+        let tmpl_instance = BUILD_CI_TEMPLATE
+            .clone()
+            .replace("{{UPSTREAM_BRANCH}}", &github_upstream_base);
+
+        fs::create_dir_all(".github/actions/build-gcc")?;
+        fs::create_dir_all(".github/workflows")?;
+
+        fs::write(".github/actions/build-gcc/action.yml", ACTION_CI_BUILD_GCC)?;
+        fs::write(".github/workflows/build.yaml", tmpl_instance)?;
+
+        info!("Switching to {new_branch_for_ci}");
+        git::switch(&new_branch_for_ci).create().force().spawn()?;
+
+        git::add(".github/actions/build-gcc/action.yml").spawn()?;
+        git::add(".github/workflows/build.yaml").spawn()?;
+
+        git::commit()
+            .message("PLACEHOLDER COMMIT\n\nThis is only bringing basic CI. Never push upstream\n")
+            .spawn()?;
+    } else {
+        info!("Only create ONE branch, no CI");
+    }
+
+    // Push everything and maybe create a pull-request
     if let Some(remote_for_push) = &remote
         && !no_push
     {
@@ -384,8 +444,17 @@ pub async fn prepare_commits_bis(
         git::push()
             .remote(remote_for_push)
             .force()
-            .refspec(format!("HEAD:{new_branch}"))
+            .refspec(format!("{new_branch}:{new_branch}"))
             .spawn()?;
+
+        if create_extra_ci_branch {
+            info!("Pushing the CI branch to {remote_for_push} {new_branch_for_ci}");
+            git::push()
+                .remote(remote_for_push)
+                .force()
+                .refspec(format!("{new_branch_for_ci}:{new_branch_for_ci}"))
+                .spawn()?;
+        }
 
         if let Some(token) = token
             && !no_pull_request
@@ -423,16 +492,31 @@ pub async fn prepare_commits_bis(
             //     (None, gccrs_dev_branch.as_str())
             // };
 
-            info!("head: {new_branch}, base: {github_upstream_base}");
+            let pr_branch = if create_extra_ci_branch {
+                &new_branch_for_ci
+            } else {
+                &new_branch
+            };
+
+            info!("head: {pr_branch}, base: {github_upstream_base}");
+
+            let extra_comments = if create_extra_ci_branch {
+                format!(
+                    "We're only interested by the CI results. The branch to push is in {new_branch}"
+                )
+            } else {
+                "".to_string()
+            };
 
             let pr_descr = format!(
-                "This is a fake PR, not meant to be merged. It tries to merge commits to upstream with an upstream base branch {github_upstream_base}.\nWe're only interested by the CI results.\n-- [gerris](https://github.com/Rust-GCC/gerris) 🦀\n"
+                "This is a fake PR, not meant to be merged.\nIt tries to merge commits to upstream with an upstream base branch {github_upstream_base}.\n{extra_comments}.\n-- [gerris](https://github.com/Rust-GCC/gerris) 🦀\n"
             );
+
             instance
                 .pulls(gh_owner, "gccrs")
                 .create(
                     format!("Fake PR to test the upstreaming of commit up to {new_branch}"),
-                    &new_branch,
+                    pr_branch,
                     github_upstream_base,
                 )
                 .body(pr_descr)

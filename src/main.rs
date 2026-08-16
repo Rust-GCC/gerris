@@ -34,6 +34,7 @@ struct Config {
     github_upstream_base: Option<String>,
     no_rebase: Option<bool>,
     add_missing_prefix: Option<bool>,
+    no_extra_ci_branch: Option<bool>,
 }
 
 impl Config {
@@ -54,6 +55,7 @@ impl Config {
             github_upstream_base: None,
             no_rebase: None,
             add_missing_prefix: None,
+            no_extra_ci_branch: None,
         }
     }
 
@@ -72,6 +74,7 @@ impl Config {
         gccrs: Option<PathBuf>,
         remote: Option<String>,
         add_missing_prefix: u8,
+        no_extra_ci_branch: u8,
     ) -> Result<upstream::UpstreamOpt, Error> {
         let token = if let Some(tf) = token_file {
             Some(fs::read_to_string(&tf)?.trim().to_string())
@@ -101,6 +104,8 @@ impl Config {
             remote: remote.or(self.remote.take()),
             add_missing_prefix: add_missing_prefix > 0
                 || self.add_missing_prefix.map_or(false, |v| v),
+            no_extra_ci_branch: no_extra_ci_branch > 0
+                || self.no_extra_ci_branch.is_some_and(|v| v),
         })
     }
 
@@ -267,6 +272,9 @@ enum SubCmd {
 
         #[arg(long, help = "Add missing 'gccrs: ' prefix to commit when missing", action = clap::ArgAction::Count)]
         add_missing_prefix: u8,
+
+        #[arg(long, help = "Do not create 2 branches with one dedicated for CI, stop at the branch to push", action = clap::ArgAction::Count)]
+        no_extra_ci_branch: u8,
     },
 }
 
@@ -343,6 +351,7 @@ async fn main() -> anyhow::Result<()> {
             work,
             remote,
             add_missing_prefix,
+            no_extra_ci_branch,
         } => {
             let token = if let Some(tf) = token_file {
                 Some(fs::read_to_string(&tf)?.trim().to_string())
@@ -364,6 +373,7 @@ async fn main() -> anyhow::Result<()> {
                 work,
                 remote,
                 add_missing_prefix,
+                no_extra_ci_branch,
             )?;
 
             upstream::prepare_commits_bis(sconf).await?
